@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
+use App\Core\App;
 use App\Core\DB;
 use App\Core\Request;
 use App\Core\Response;
@@ -50,6 +51,9 @@ final class ConsultantController
              LIMIT $limit OFFSET $offset",
             $params
         );
+        foreach ($rows as &$r) {
+            $r['photo_url'] = App::absoluteUrl($r['photo_url']);
+        }
         Response::json(['consultants' => $rows]);
     }
 
@@ -59,6 +63,7 @@ final class ConsultantController
         $c = DB::one('SELECT * FROM consultants WHERE id = :id', [':id' => $id]);
         if (!$c) Response::error('not_found', 404);
         unset($c['user_id']);
+        $c['photo_url'] = App::absoluteUrl($c['photo_url']);
         Response::json(['consultant' => $c]);
     }
 

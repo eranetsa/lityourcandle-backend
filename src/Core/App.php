@@ -62,4 +62,18 @@ final class App
     {
         return dirname(__DIR__, 2);
     }
+
+    /**
+     * Expand a relative upload path (e.g. "/uploads/consultants/x.jpg") into
+     * an absolute URL using APP_URL. Pass-through for absolute URLs, null,
+     * and empty strings.
+     */
+    public static function absoluteUrl(?string $path): ?string
+    {
+        if ($path === null || $path === '') return $path;
+        if (preg_match('#^https?://#i', $path)) return $path;
+        $base = rtrim((string)self::config('app.url', ''), '/');
+        if ($base === '') return $path;
+        return $base . '/' . ltrim($path, '/');
+    }
 }
