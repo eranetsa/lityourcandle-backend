@@ -1,0 +1,290 @@
+<?php
+declare(strict_types=1);
+
+use App\Core\App;
+use App\Core\DB;
+
+require_once dirname(__DIR__, 2) . '/vendor/autoload.php';
+App::boot(dirname(__DIR__, 2));
+
+session_name('LITYC_ADMIN');
+session_set_cookie_params([
+    'lifetime' => 0,
+    'path'     => '/admin',
+    'secure'   => true,
+    'httponly' => true,
+    'samesite' => 'Strict',
+]);
+session_start();
+
+$action = $_GET['action'] ?? 'dashboard';
+
+function csrf(): string {
+    if (empty($_SESSION['csrf'])) $_SESSION['csrf'] = bin2hex(random_bytes(16));
+    return $_SESSION['csrf'];
+}
+function csrf_check(): void {
+    if (($_POST['csrf'] ?? '') !== ($_SESSION['csrf'] ?? '_')) {
+        http_response_code(419); exit('CSRF mismatch');
+    }
+}
+function require_admin(): void {
+    if (empty($_SESSION['admin_id'])) { header('Location: /admin/?action=login'); exit; }
+}
+function audit(string $action, string $entity, ?int $entityId = null, array $detail = []): void {
+    DB::insert('audit_log', [
+        'admin_user_id' => $_SESSION['admin_id'] ?? null,
+        'action'        => $action,
+        'entity'        => $entity,
+        'entity_id'     => $entityId,
+        'detail_json'   => $detail ? json_encode($detail, JSON_UNESCAPED_UNICODE) : null,
+        'ip_address'    => $_SERVER['REMOTE_ADDR'] ?? null,
+    ]);
+}
+
+// ----- LOGIN / LOGOUT --------------------------------------------------------
+if ($action === 'login') {
+    $err = '';
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        csrf_check();
+        $u = DB::one('SELECT * FROM admin_users WHERE username = :u AND is_active = 1', [':u' => $_POST['username'] ?? '']);
+        if ($u && password_verify($_POST['password'] ?? '', $u['password_hash'])) {
+            $_SESSION['admin_id']   = (int)$u['id'];
+            $_SESSION['admin_name'] = $u['full_name'];
+            $_SESSION['admin_role'] = $u['role'];
+            DB::run('UPDATE admin_users SET last_login_at = NOW() WHERE id = :id', [':id' => $u['id']]);
+            audit('login', 'admin_user', (int)$u['id']);
+            header('Location: /admin/'); exit;
+        }
+        $err = 'بيانات الدخول غير صحيحة';
+    }
+    render('login', ['err' => $err]);
+    exit;
+}
+if ($action === 'logout') {
+    audit('logout', 'admin_user', $_SESSION['admin_id'] ?? null);
+    session_destroy();
+    header('Location: /admin/?action=login'); exit;
+}
+
+require_admin();
+
+// ----- ROUTES ---------------------------------------------------------------
+switch ($action) {
+    case 'dashboard':     dashboard(); break;
+    case 'users':         users_index(); break;
+    case 'consultants':   consultants_index(); break;
+    case 'sessions':      sessions_index(); break;
+    case 'subscriptions': subscriptions_index(); break;
+    case 'transactions':  transactions_index(); break;
+    case 'mood':          mood_analytics(); break;
+    case 'ai':            ai_analytics(); break;
+    case 'daily':         daily_messages(); break;
+    case 'programs':      programs_index(); break;
+    default: http_response_code(404); echo 'Not found';
+}
+
+// ----- VIEW HELPERS ---------------------------------------------------------
+function render(string $view, array $vars = []): void
+{
+    extract($vars, EXTR_SKIP);
+    require __DIR__ . "/views/_layout_top.php";
+    require __DIR__ . "/views/$view.php";
+    require __DIR__ . "/views/_layout_bottom.php";
+}
+
+// ----- PAGES ---------------------------------------------------------------
+function dashboard(): void
+{
+    $stats = [
+        'users'         => (int)(DB::one('SELECT COUNT(*) AS n FROM users')['n'] ?? 0),
+        'consultants'   => (int)(DB::one('SELECT COUNT(*) AS n FROM consultants')['n'] ?? 0),
+        'sessions_30d'  => (int)(DB::one("SELECT COUNT(*) AS n FROM sessions WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)")['n'] ?? 0),
+        'paid_subs'     => (int)(DB::one("SELECT COUNT(*) AS n FROM subscriptions WHERE status IN ('active','trial') AND plan != 'free'")['n'] ?? 0),
+        'ai_today'      => (int)(DB::one("SELECT COUNT(*) AS n FROM ai_logs WHERE DATE(created_at) = CURDATE()")['n'] ?? 0),
+        'mood_today'    => (int)(DB::one("SELECT COUNT(*) AS n FROM mood_logs WHERE logged_on = CURDATE()")['n'] ?? 0),
+    ];
+    render('dashboard', compact('stats'));
+}
+
+function users_index(): void
+{
+    $q = trim($_GET['q'] ?? '');
+    $params = [];
+    $where = '1=1';
+    if ($q !== '') {
+        $where .= ' AND (u.email LIKE :q OR u.name LIKE :q OR u.phone LIKE :q)';
+        $params[':q'] = "%$q%";
+    }
+    $rows = DB::all(
+        "SELECT u.*, s.plan, s.status AS sub_status, s.expires_at
+         FROM users u
+         LEFT JOIN subscriptions s ON s.id = (SELECT MAX(id) FROM subscriptions WHERE user_id = u.id)
+         WHERE $where
+         ORDER BY u.id DESC LIMIT 200", $params
+    );
+
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['op'] ?? '') === 'toggle') {
+        csrf_check();
+        $id = (int)$_POST['id'];
+        DB::run('UPDATE users SET is_active = 1 - is_active WHERE id = :id', [':id' => $id]);
+        audit('toggle_active', 'user', $id);
+        header('Location: /admin/?action=users'); exit;
+    }
+    render('users', ['rows' => $rows, 'q' => $q]);
+}
+
+function consultants_index(): void
+{
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        csrf_check();
+        $op = $_POST['op'] ?? '';
+        if ($op === 'create') {
+            $id = DB::insert('consultants', [
+                'name'            => trim($_POST['name']),
+                'specialty'       => trim($_POST['specialty']),
+                'bio'             => trim($_POST['bio'] ?? ''),
+                'photo_url'       => trim($_POST['photo_url'] ?? '') ?: null,
+                'price_per_session' => (float)$_POST['price'],
+                'session_types'   => implode(',', $_POST['types'] ?? ['chat']),
+                'languages'       => trim($_POST['languages'] ?? 'ar'),
+                'is_available'    => isset($_POST['is_available']) ? 1 : 0,
+            ]);
+            audit('create', 'consultant', $id);
+        } elseif ($op === 'update') {
+            $id = (int)$_POST['id'];
+            DB::update('consultants', [
+                'name'            => trim($_POST['name']),
+                'specialty'       => trim($_POST['specialty']),
+                'bio'             => trim($_POST['bio'] ?? ''),
+                'photo_url'       => trim($_POST['photo_url'] ?? '') ?: null,
+                'price_per_session' => (float)$_POST['price'],
+                'session_types'   => implode(',', $_POST['types'] ?? ['chat']),
+                'languages'       => trim($_POST['languages'] ?? 'ar'),
+                'is_available'    => isset($_POST['is_available']) ? 1 : 0,
+            ], 'id = :id', [':id' => $id]);
+            audit('update', 'consultant', $id);
+        } elseif ($op === 'delete') {
+            $id = (int)$_POST['id'];
+            DB::run('DELETE FROM consultants WHERE id = :id', [':id' => $id]);
+            audit('delete', 'consultant', $id);
+        }
+        header('Location: /admin/?action=consultants'); exit;
+    }
+    $rows = DB::all('SELECT * FROM consultants ORDER BY id DESC LIMIT 200');
+    render('consultants', ['rows' => $rows]);
+}
+
+function sessions_index(): void
+{
+    $rows = DB::all(
+        "SELECT s.*, u.name AS user_name, c.name AS consultant_name
+         FROM sessions s
+         JOIN users u ON u.id = s.user_id
+         JOIN consultants c ON c.id = s.consultant_id
+         ORDER BY s.id DESC LIMIT 200"
+    );
+    render('sessions', ['rows' => $rows]);
+}
+
+function subscriptions_index(): void
+{
+    $rows = DB::all(
+        "SELECT s.*, u.name AS user_name, u.email
+         FROM subscriptions s JOIN users u ON u.id = s.user_id
+         ORDER BY s.id DESC LIMIT 200"
+    );
+    render('subscriptions', ['rows' => $rows]);
+}
+
+function transactions_index(): void
+{
+    $rows = DB::all(
+        "SELECT t.*, u.email FROM transactions t
+         JOIN users u ON u.id = t.user_id
+         ORDER BY t.id DESC LIMIT 200"
+    );
+    render('transactions', ['rows' => $rows]);
+}
+
+function mood_analytics(): void
+{
+    $byDay = DB::all(
+        "SELECT logged_on, mood, COUNT(*) AS n FROM mood_logs
+         WHERE logged_on >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+         GROUP BY logged_on, mood ORDER BY logged_on"
+    );
+    render('mood', ['byDay' => $byDay]);
+}
+
+function ai_analytics(): void
+{
+    $stats = DB::one(
+        "SELECT COUNT(*) AS total,
+                SUM(escalated) AS escalated,
+                SUM(IF(DATE(created_at) = CURDATE(), 1, 0)) AS today,
+                COALESCE(SUM(tokens_in), 0) AS tokens_in,
+                COALESCE(SUM(tokens_out), 0) AS tokens_out
+         FROM ai_logs"
+    );
+    $latest = DB::all('SELECT * FROM ai_logs ORDER BY id DESC LIMIT 50');
+    render('ai', ['stats' => $stats, 'latest' => $latest]);
+}
+
+function daily_messages(): void
+{
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        csrf_check();
+        $op = $_POST['op'] ?? '';
+        if ($op === 'create') {
+            $id = DB::insert('daily_messages', [
+                'text_ar'   => trim($_POST['text_ar']),
+                'text_en'   => trim($_POST['text_en'] ?? '') ?: null,
+                'show_on'   => trim($_POST['show_on'] ?? '') ?: null,
+                'is_active' => isset($_POST['is_active']) ? 1 : 0,
+            ]);
+            audit('create', 'daily_message', $id);
+        } elseif ($op === 'delete') {
+            $id = (int)$_POST['id'];
+            DB::run('DELETE FROM daily_messages WHERE id = :id', [':id' => $id]);
+            audit('delete', 'daily_message', $id);
+        }
+        header('Location: /admin/?action=daily'); exit;
+    }
+    $rows = DB::all('SELECT * FROM daily_messages ORDER BY id DESC LIMIT 200');
+    render('daily', ['rows' => $rows]);
+}
+
+function programs_index(): void
+{
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        csrf_check();
+        $op = $_POST['op'] ?? '';
+        if ($op === 'create_program') {
+            $id = DB::insert('programs', [
+                'slug'        => trim($_POST['slug']),
+                'category'    => $_POST['category'],
+                'title_ar'    => trim($_POST['title_ar']),
+                'title_en'    => trim($_POST['title_en'] ?? '') ?: null,
+                'description_ar' => trim($_POST['description_ar'] ?? '') ?: null,
+                'is_premium'  => isset($_POST['is_premium']) ? 1 : 0,
+                'is_active'   => 1,
+            ]);
+            audit('create', 'program', $id);
+        } elseif ($op === 'create_day') {
+            $id = DB::insert('program_days', [
+                'program_id'   => (int)$_POST['program_id'],
+                'day_number'   => (int)$_POST['day_number'],
+                'title_ar'     => trim($_POST['title_ar']),
+                'body_ar'      => trim($_POST['body_ar'] ?? '') ?: null,
+                'duration_min' => (int)($_POST['duration_min'] ?? 3),
+                'is_locked'    => isset($_POST['is_locked']) ? 1 : 0,
+            ]);
+            audit('create', 'program_day', $id);
+        }
+        header('Location: /admin/?action=programs'); exit;
+    }
+    $programs = DB::all('SELECT * FROM programs ORDER BY sort_order, id');
+    $days     = DB::all('SELECT * FROM program_days ORDER BY program_id, day_number');
+    render('programs', ['programs' => $programs, 'days' => $days]);
+}
