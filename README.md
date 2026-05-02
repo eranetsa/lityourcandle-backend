@@ -74,7 +74,7 @@ All JSON. Auth via `Authorization: Bearer <jwt>` unless marked public.
 - `POST /api/paywall/check`
 
 ### WebSocket
-`wss://api.lityourcandle.app/ws?token=<jwt>&session_id=<id>` — JSON messages of type
+`wss://backend.lityourcandle.com/ws?token=<jwt>&session_id=<id>` — JSON messages of type
 `message`, `typing`, `read`. The server persists messages to the `messages` table
 and broadcasts to other connections in the same session.
 
@@ -139,10 +139,10 @@ sudo chmod 770    /var/www/lityourcandle/storage/logs
 Create the first admin user:
 
 ```bash
-php cron/create_admin.php admin admin@lityourcandle.app 'StrongP@ss1234' 'مدير النظام'
+php cron/create_admin.php admin admin@lityourcandle.com 'StrongP@ss1234' 'مدير النظام'
 ```
 
-Then sign in at `https://api.lityourcandle.app/admin/`.
+Then sign in at `https://backend.lityourcandle.com/admin/`.
 
 ## Plans
 

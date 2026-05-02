@@ -5,7 +5,7 @@ return [
     'app' => [
         'env'      => $_ENV['APP_ENV']      ?? 'production',
         'debug'    => filter_var($_ENV['APP_DEBUG'] ?? false, FILTER_VALIDATE_BOOLEAN),
-        'url'      => $_ENV['APP_URL']      ?? 'https://api.lityourcandle.app',
+        'url'      => $_ENV['APP_URL']      ?? 'https://backend.lityourcandle.com',
         'timezone' => $_ENV['APP_TIMEZONE'] ?? 'Asia/Riyadh',
     ],
     'db' => [
@@ -19,7 +19,7 @@ return [
     'jwt' => [
         'secret' => $_ENV['JWT_SECRET'] ?? '',
         'ttl'    => (int)($_ENV['JWT_TTL'] ?? 2592000),
-        'iss'    => $_ENV['APP_URL'] ?? 'lityourcandle',
+        'iss'    => $_ENV['APP_URL'] ?? 'https://backend.lityourcandle.com',
         'alg'    => 'HS256',
     ],
     'crypto' => [

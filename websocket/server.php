@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * Ratchet WebSocket server for real-time chat in active sessions.
  *
- * Connect:   wss://api.lityourcandle.app/ws?token=<JWT>&session_id=<id>
+ * Connect:   wss://backend.lityourcandle.com/ws?token=<JWT>&session_id=<id>
  * Behind Apache use mod_proxy_wstunnel:
  *   ProxyPass        /ws  ws://127.0.0.1:8081/
  *   ProxyPassReverse /ws  ws://127.0.0.1:8081/
