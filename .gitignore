@@ -2,8 +2,10 @@
 /.env
 /storage/logs/*
 /storage/cache/*
+/public/uploads/consultants/*
 !/storage/logs/.gitkeep
 !/storage/cache/.gitkeep
+!/public/uploads/consultants/.gitkeep
 *.log
 .DS_Store
 .idea/

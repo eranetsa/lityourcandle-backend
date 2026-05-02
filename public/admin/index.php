@@ -136,43 +136,86 @@ function users_index(): void
 
 function consultants_index(): void
 {
+    $error = null;
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $op = $_POST['op'] ?? '';
-        if ($op === 'create') {
-            $id = DB::insert('consultants', [
-                'name'            => trim($_POST['name']),
-                'specialty'       => trim($_POST['specialty']),
-                'bio'             => trim($_POST['bio'] ?? ''),
-                'photo_url'       => trim($_POST['photo_url'] ?? '') ?: null,
-                'price_per_session' => (float)$_POST['price'],
-                'session_types'   => implode(',', $_POST['types'] ?? ['chat']),
-                'languages'       => trim($_POST['languages'] ?? 'ar'),
-                'is_available'    => isset($_POST['is_available']) ? 1 : 0,
-            ]);
-            audit('create', 'consultant', $id);
-        } elseif ($op === 'update') {
-            $id = (int)$_POST['id'];
-            DB::update('consultants', [
-                'name'            => trim($_POST['name']),
-                'specialty'       => trim($_POST['specialty']),
-                'bio'             => trim($_POST['bio'] ?? ''),
-                'photo_url'       => trim($_POST['photo_url'] ?? '') ?: null,
-                'price_per_session' => (float)$_POST['price'],
-                'session_types'   => implode(',', $_POST['types'] ?? ['chat']),
-                'languages'       => trim($_POST['languages'] ?? 'ar'),
-                'is_available'    => isset($_POST['is_available']) ? 1 : 0,
-            ], 'id = :id', [':id' => $id]);
-            audit('update', 'consultant', $id);
+        if ($op === 'create' || $op === 'update') {
+            $photoUrl = trim($_POST['photo_url'] ?? '') ?: null;
+            if (!empty($_FILES['photo']) && ($_FILES['photo']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
+                try {
+                    $photoUrl = save_consultant_photo($_FILES['photo']);
+                } catch (\RuntimeException $e) {
+                    $error = $e->getMessage();
+                }
+            }
+            if (!$error) {
+                $data = [
+                    'name'              => trim($_POST['name']),
+                    'specialty'         => trim($_POST['specialty']),
+                    'bio'               => trim($_POST['bio'] ?? ''),
+                    'price_per_session' => (float)$_POST['price'],
+                    'session_types'     => implode(',', $_POST['types'] ?? ['chat']),
+                    'languages'         => trim($_POST['languages'] ?? 'ar'),
+                    'is_available'      => isset($_POST['is_available']) ? 1 : 0,
+                ];
+                if ($photoUrl !== null) $data['photo_url'] = $photoUrl;
+                if ($op === 'create') {
+                    $id = DB::insert('consultants', $data + ['photo_url' => $photoUrl]);
+                    audit('create', 'consultant', $id);
+                } else {
+                    $id = (int)$_POST['id'];
+                    DB::update('consultants', $data, 'id = :id', [':id' => $id]);
+                    audit('update', 'consultant', $id);
+                }
+                header('Location: /admin/?action=consultants'); exit;
+            }
         } elseif ($op === 'delete') {
             $id = (int)$_POST['id'];
+            $row = DB::one('SELECT photo_url FROM consultants WHERE id = :id', [':id' => $id]);
             DB::run('DELETE FROM consultants WHERE id = :id', [':id' => $id]);
             audit('delete', 'consultant', $id);
+            // Best-effort delete of the local upload (skip remote URLs)
+            if ($row && !empty($row['photo_url']) && str_starts_with($row['photo_url'], '/uploads/consultants/')) {
+                @unlink(dirname(__DIR__, 2) . '/public' . $row['photo_url']);
+            }
+            header('Location: /admin/?action=consultants'); exit;
         }
-        header('Location: /admin/?action=consultants'); exit;
     }
     $rows = DB::all('SELECT * FROM consultants ORDER BY id DESC LIMIT 200');
-    render('consultants', ['rows' => $rows]);
+    render('consultants', ['rows' => $rows, 'error' => $error]);
+}
+
+/**
+ * Validate and persist a consultant photo to public/uploads/consultants/.
+ * Returns the public path (e.g. /uploads/consultants/abc123.jpg).
+ */
+function save_consultant_photo(array $file): string
+{
+    if (($file['error'] ?? UPLOAD_ERR_OK) !== UPLOAD_ERR_OK) {
+        throw new \RuntimeException('فشل رفع الملف');
+    }
+    if (($file['size'] ?? 0) > 5 * 1024 * 1024) {
+        throw new \RuntimeException('الحد الأقصى للحجم 5 ميغابايت');
+    }
+    $finfo = new \finfo(FILEINFO_MIME_TYPE);
+    $mime  = $finfo->file($file['tmp_name']);
+    $allowed = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
+    if (!isset($allowed[$mime])) {
+        throw new \RuntimeException('نوع الصورة غير مدعوم — استخدم JPG أو PNG أو WebP');
+    }
+    $ext  = $allowed[$mime];
+    $name = bin2hex(random_bytes(12)) . '.' . $ext;
+    $dir  = dirname(__DIR__, 2) . '/public/uploads/consultants';
+    if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) {
+        throw new \RuntimeException('تعذّر إنشاء مجلد التحميل');
+    }
+    $dest = $dir . '/' . $name;
+    if (!move_uploaded_file($file['tmp_name'], $dest)) {
+        throw new \RuntimeException('تعذّر حفظ الصورة');
+    }
+    @chmod($dest, 0644);
+    return '/uploads/consultants/' . $name;
 }
 
 function sessions_index(): void

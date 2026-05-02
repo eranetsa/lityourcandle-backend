@@ -1,6 +1,10 @@
-<div class="card" style="max-width:380px; margin:80px auto;">
-  <h2 style="margin-top:0;">دخول الإدارة</h2>
-  <?php if (!empty($err)): ?><p style="color:#b91c1c;"><?= htmlspecialchars($err) ?></p><?php endif; ?>
+<div class="auth-card">
+  <div class="brand-row">
+    <svg class="logo"><use href="#lytcLogo"/></svg>
+    <h2>أشعل شمعتك</h2>
+  </div>
+  <p class="sub">مرحبًا بك في لوحة الإدارة 🕯️</p>
+  <?php if (!empty($err)): ?><div class="err"><?= htmlspecialchars($err) ?></div><?php endif; ?>
   <form method="post">
     <input type="hidden" name="csrf" value="<?= csrf() ?>">
     <p><input type="text" name="username" placeholder="اسم المستخدم" required autofocus></p>
