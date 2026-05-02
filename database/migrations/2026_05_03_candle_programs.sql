@@ -11,11 +11,13 @@ ALTER TABLE programs
     'relationships','self_development','candle'
   ) NOT NULL;
 
--- New columns for candle branding (also useful for any future themed program)
+-- New columns for candle branding (also useful for any future themed program).
+-- MySQL 8 doesn't support `ADD COLUMN IF NOT EXISTS`, so this migration must
+-- only run once. If you re-run, drop the columns first or skip this block.
 ALTER TABLE programs
-  ADD COLUMN IF NOT EXISTS icon          VARCHAR(20) DEFAULT NULL,
-  ADD COLUMN IF NOT EXISTS palette_start CHAR(7)     DEFAULT NULL,
-  ADD COLUMN IF NOT EXISTS palette_end   CHAR(7)     DEFAULT NULL;
+  ADD COLUMN icon          VARCHAR(20) DEFAULT NULL AFTER cover_url,
+  ADD COLUMN palette_start CHAR(7)     DEFAULT NULL AFTER icon,
+  ADD COLUMN palette_end   CHAR(7)     DEFAULT NULL AFTER palette_start;
 
 -- ─── Programs ──────────────────────────────────────────────────────────────
 INSERT INTO programs

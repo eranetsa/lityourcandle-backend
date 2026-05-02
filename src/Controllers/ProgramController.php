@@ -13,18 +13,21 @@ final class ProgramController
 {
     public function list(Request $req): void
     {
-        $where = ['is_active = 1'];
+        $where = ['p.is_active = 1'];
         $params = [];
         if (!empty($req->query['category'])) {
-            $where[] = 'category = :c';
+            $where[] = 'p.category = :c';
             $params[':c'] = (string)$req->query['category'];
         }
         $rows = DB::all(
-            'SELECT id, slug, category, title_ar, title_en, description_ar, description_en,
-                    cover_url, icon, palette_start, palette_end, is_premium, sort_order
-             FROM programs
+            'SELECT p.id, p.slug, p.category, p.title_ar, p.title_en,
+                    p.description_ar, p.description_en, p.cover_url,
+                    p.icon, p.palette_start, p.palette_end,
+                    p.is_premium, p.sort_order,
+                    COALESCE((SELECT COUNT(*) FROM program_days WHERE program_id = p.id), 0) AS days_count
+             FROM programs p
              WHERE ' . implode(' AND ', $where) . '
-             ORDER BY sort_order ASC, id ASC',
+             ORDER BY p.sort_order ASC, p.id ASC',
             $params
         );
         Response::json(['programs' => $rows]);
