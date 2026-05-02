@@ -18,7 +18,7 @@ final class AiController
     public function candle(Request $req): void
     {
         $data = Validator::check($req->body, [
-            'mood'    => 'in:happy,neutral,sad',
+            'mood'    => 'in:happy,calm,neutral,anxious,sad',
             'message' => 'required|string|min:1|max:2000',
         ]);
 

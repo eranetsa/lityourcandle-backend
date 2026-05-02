@@ -148,7 +148,7 @@ CREATE TABLE sessions (
     started_at      DATETIME DEFAULT NULL,
     ended_at        DATETIME DEFAULT NULL,
     duration_min    INT UNSIGNED DEFAULT NULL,
-    pre_mood        ENUM('happy','neutral','sad') DEFAULT NULL,
+    pre_mood        ENUM('happy','calm','neutral','anxious','sad') DEFAULT NULL,
     pre_issue       TEXT,
     pre_ai_summary  TEXT,
     post_rating     TINYINT UNSIGNED DEFAULT NULL,
@@ -192,7 +192,7 @@ CREATE TABLE messages (
 CREATE TABLE mood_logs (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     user_id         BIGINT UNSIGNED NOT NULL,
-    mood            ENUM('happy','neutral','sad') NOT NULL,
+    mood            ENUM('happy','calm','neutral','anxious','sad') NOT NULL,
     note            VARCHAR(500) DEFAULT NULL,
     logged_on       DATE NOT NULL,
     created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -208,7 +208,7 @@ CREATE TABLE mood_logs (
 CREATE TABLE ai_logs (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     user_id         BIGINT UNSIGNED NOT NULL,
-    mood            ENUM('happy','neutral','sad') DEFAULT NULL,
+    mood            ENUM('happy','calm','neutral','anxious','sad') DEFAULT NULL,
     user_message    TEXT NOT NULL,
     response_json   JSON NOT NULL,
     escalated       TINYINT(1) NOT NULL DEFAULT 0,

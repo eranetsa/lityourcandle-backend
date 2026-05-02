@@ -13,7 +13,7 @@ final class MoodController
     public function log(Request $req): void
     {
         $data = Validator::check($req->body, [
-            'mood' => 'required|in:happy,neutral,sad',
+            'mood' => 'required|in:happy,calm,neutral,anxious,sad',
             'note' => 'string|max:500',
             'date' => 'date',
         ]);
@@ -52,7 +52,7 @@ final class MoodController
              GROUP BY mood",
             [':uid' => $uid]
         );
-        $totals = ['happy' => 0, 'neutral' => 0, 'sad' => 0];
+        $totals = ['happy' => 0, 'calm' => 0, 'neutral' => 0, 'anxious' => 0, 'sad' => 0];
         foreach ($rows as $r) $totals[$r['mood']] = (int)$r['n'];
         $total30 = array_sum($totals);
 
@@ -62,13 +62,13 @@ final class MoodController
              ORDER BY logged_on DESC",
             [':uid' => $uid]
         );
-        $sad7 = count(array_filter($last7, fn($r) => $r['mood'] === 'sad'));
-        $recommend = $sad7 >= 4;
+        $heavy7 = count(array_filter($last7, fn($r) => in_array($r['mood'], ['sad','anxious'], true)));
+        $recommend = $heavy7 >= 4;
 
         Response::json([
             'last_30_days'  => $totals,
             'total_logged'  => $total30,
-            'sad_last_7'    => $sad7,
+            'heavy_last_7'  => $heavy7,
             'recommend_consultant' => $recommend,
             'recommended_specialty' => $recommend ? 'القلق والتوتر' : null,
             'message_ar'    => $recommend

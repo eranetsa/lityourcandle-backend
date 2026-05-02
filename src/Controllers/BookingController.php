@@ -19,7 +19,7 @@ final class BookingController
             'type'          => 'required|in:chat,voice,video',
             'mode'          => 'in:instant,scheduled',
             'scheduled_at'  => 'string',
-            'pre_mood'      => 'in:happy,neutral,sad',
+            'pre_mood'      => 'in:happy,calm,neutral,anxious,sad',
             'pre_issue'     => 'string|max:2000',
             'pre_ai_summary'=> 'string|max:2000',
             'use_extra'     => 'in:0,1',
