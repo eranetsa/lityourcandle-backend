@@ -6,7 +6,10 @@
 # Paste the entire contents of this file into the "Cloud-init configuration"
 # textarea before creating the server. Edit DOMAIN / LE_EMAIL / REPO_URL below.
 # =============================================================================
-set -euxo pipefail
+set -euo pipefail
+# NOTE: do not enable `-x` — secrets (DB pass, JWT secret) would leak into the log.
+touch /var/log/lityc-bootstrap.log
+chmod 600 /var/log/lityc-bootstrap.log
 exec > >(tee -a /var/log/lityc-bootstrap.log) 2>&1
 
 # ----- USER CONFIG -----------------------------------------------------------
@@ -17,7 +20,20 @@ APP_DIR="/var/www/lityourcandle"
 DB_NAME="lityourcandle"
 DB_USER="lityc"
 TIMEZONE="Asia/Riyadh"
+
+# Public keys to authorize for root SSH login (one per line, ssh-* format)
+ROOT_AUTHORIZED_KEYS="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOS2I9Ahn4NJgjqr2cIUAf9xbAMsGywFE+vJMllZGOge claude-deploy@lityourcandle"
 # -----------------------------------------------------------------------------
+
+echo ">>> installing root authorized_keys"
+install -d -m 700 /root/.ssh
+# Append (don't clobber) any keys already injected by Hetzner from your account
+while IFS= read -r key; do
+  [ -n "$key" ] || continue
+  grep -qxF "$key" /root/.ssh/authorized_keys 2>/dev/null \
+    || echo "$key" >> /root/.ssh/authorized_keys
+done <<< "$ROOT_AUTHORIZED_KEYS"
+chmod 600 /root/.ssh/authorized_keys
 
 echo ">>> waiting for LAMP / cloud-init services to come up"
 for i in $(seq 1 60); do
@@ -54,9 +70,17 @@ ADMIN_PASS=$(openssl rand -base64 18 | tr -d '/+=' | cut -c1-20)
 echo ">>> creating database + user"
 MYSQL_CMD="mysql"
 systemctl is-active --quiet mariadb && MYSQL_CMD="mariadb"
-$MYSQL_CMD --user=root <<SQL
+# Hetzner LAMP image stores the MySQL root password in /root/.hcloud_password
+# as `mysql_root_pass="..."`. If absent, fall back to passwordless (auth_socket).
+MYSQL_ROOT_OPTS=""
+if [ -f /root/.hcloud_password ]; then
+    . /root/.hcloud_password
+    [ -n "${mysql_root_pass:-}" ] && MYSQL_ROOT_OPTS="--password=${mysql_root_pass}"
+fi
+$MYSQL_CMD --user=root $MYSQL_ROOT_OPTS <<SQL
 CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS}';
+ALTER  USER '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS}';
 GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'localhost';
 FLUSH PRIVILEGES;
 SQL
@@ -113,8 +137,8 @@ ENV
 chmod 640 "$APP_DIR/.env"
 
 echo ">>> loading schema + seeds"
-$MYSQL_CMD -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" < "$APP_DIR/database/schema.sql"
-$MYSQL_CMD -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" < "$APP_DIR/database/seeds.sql"
+$MYSQL_CMD --user="$DB_USER" --password="$DB_PASS" "$DB_NAME" < "$APP_DIR/database/schema.sql"
+$MYSQL_CMD --user="$DB_USER" --password="$DB_PASS" "$DB_NAME" < "$APP_DIR/database/seeds.sql"
 
 echo ">>> Apache vhost"
 cat > /etc/apache2/sites-available/lityourcandle.conf <<APACHE
