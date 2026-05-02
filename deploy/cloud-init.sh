@@ -217,6 +217,21 @@ echo ">>> creating first admin user"
 cd "$APP_DIR"
 sudo -u www-data php cron/create_admin.php admin "admin@${DOMAIN}" "$ADMIN_PASS" "Admin"
 
+echo ">>> auto-deploy webhook (GitHub → /_deploy.php → /usr/local/sbin/lityc-deploy.sh)"
+install -m 0755 -o root -g root "$APP_DIR/deploy/lityc-deploy.sh" /usr/local/sbin/lityc-deploy.sh
+mkdir -p /etc/lityourcandle
+if [ ! -s /etc/lityourcandle/deploy.secret ]; then
+    openssl rand -hex 32 > /etc/lityourcandle/deploy.secret
+fi
+chown root:www-data /etc/lityourcandle/deploy.secret
+chmod 0640 /etc/lityourcandle/deploy.secret
+cat > /etc/sudoers.d/lityc-deploy <<'SUDO'
+www-data ALL=(root) NOPASSWD: /usr/local/sbin/lityc-deploy.sh
+SUDO
+chmod 0440 /etc/sudoers.d/lityc-deploy
+visudo -c -f /etc/sudoers.d/lityc-deploy
+git config --system --add safe.directory "$APP_DIR" 2>/dev/null || true
+
 echo ">>> writing certbot helper (run after DNS is pointed)"
 cat > /root/run-certbot.sh <<CERT
 #!/bin/bash
