@@ -31,6 +31,14 @@ function csrf_check(): void {
 function require_admin(): void {
     if (empty($_SESSION['admin_id'])) { header('Location: /admin/?action=login'); exit; }
 }
+/** Validate a `#RRGGBB` color string; returns null if blank/invalid. */
+function normalize_hex(string $s): ?string {
+    $s = trim($s);
+    if ($s === '') return null;
+    if ($s[0] !== '#') $s = '#' . $s;
+    return preg_match('/^#[0-9A-Fa-f]{6}$/', $s) ? strtoupper($s) : null;
+}
+
 function audit(string $action, string $entity, ?int $entityId = null, array $detail = []): void {
     DB::insert('audit_log', [
         'admin_user_id' => $_SESSION['admin_id'] ?? null,
@@ -305,13 +313,16 @@ function programs_index(): void
         $op = $_POST['op'] ?? '';
         if ($op === 'create_program') {
             $id = DB::insert('programs', [
-                'slug'        => trim($_POST['slug']),
-                'category'    => $_POST['category'],
-                'title_ar'    => trim($_POST['title_ar']),
-                'title_en'    => trim($_POST['title_en'] ?? '') ?: null,
+                'slug'           => trim($_POST['slug']),
+                'category'       => $_POST['category'],
+                'title_ar'       => trim($_POST['title_ar']),
+                'title_en'       => trim($_POST['title_en'] ?? '') ?: null,
                 'description_ar' => trim($_POST['description_ar'] ?? '') ?: null,
-                'is_premium'  => isset($_POST['is_premium']) ? 1 : 0,
-                'is_active'   => 1,
+                'icon'           => trim($_POST['icon'] ?? '') ?: null,
+                'palette_start'  => normalize_hex($_POST['palette_start'] ?? ''),
+                'palette_end'    => normalize_hex($_POST['palette_end'] ?? ''),
+                'is_premium'     => isset($_POST['is_premium']) ? 1 : 0,
+                'is_active'      => 1,
             ]);
             audit('create', 'program', $id);
         } elseif ($op === 'create_day') {

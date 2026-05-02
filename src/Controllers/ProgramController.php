@@ -21,7 +21,7 @@ final class ProgramController
         }
         $rows = DB::all(
             'SELECT id, slug, category, title_ar, title_en, description_ar, description_en,
-                    cover_url, is_premium, sort_order
+                    cover_url, icon, palette_start, palette_end, is_premium, sort_order
              FROM programs
              WHERE ' . implode(' AND ', $where) . '
              ORDER BY sort_order ASC, id ASC',
