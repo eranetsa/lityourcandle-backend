@@ -1,5 +1,5 @@
 <div class="card">
-  <h2 style="margin-top:0;">إنشاء برنامج</h2>
+  <h2 style="margin-top:0;">إنشاء برنامج جديد</h2>
   <form method="post">
     <input type="hidden" name="csrf" value="<?= csrf() ?>">
     <input type="hidden" name="op" value="create_program">
@@ -32,57 +32,29 @@
     <p><input type="text" name="title_ar" placeholder="العنوان بالعربية" required></p>
     <p><input type="text" name="title_en" placeholder="English title (optional)"></p>
     <p><textarea name="description_ar" placeholder="الوصف"></textarea></p>
-    <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 14px;">
-      <p>
-        <label>لون التدرّج (بداية)</label>
-        <input type="text" name="palette_start" placeholder="#FBEFD0" maxlength="7">
-      </p>
-      <p>
-        <label>لون التدرّج (نهاية)</label>
-        <input type="text" name="palette_end" placeholder="#F2D88E" maxlength="7">
-      </p>
+    <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px;">
+      <p><label>تدرّج (بداية)</label><input type="text" name="palette_start" placeholder="#FBEFD0" maxlength="7"></p>
+      <p><label>تدرّج (نهاية)</label><input type="text" name="palette_end" placeholder="#F2D88E" maxlength="7"></p>
+      <p><label>ترتيب العرض</label><input type="number" name="sort_order" value="0"></p>
     </div>
     <p><label><input type="checkbox" name="is_premium"> مدفوع (بريميوم)</label></p>
-    <button type="submit">إنشاء البرنامج</button>
+    <button type="submit">➕ إنشاء البرنامج</button>
   </form>
 </div>
 
 <div class="card">
-  <h2 style="margin-top:0;">إضافة يوم لبرنامج</h2>
-  <form method="post">
-    <input type="hidden" name="csrf" value="<?= csrf() ?>">
-    <input type="hidden" name="op" value="create_day">
-    <p>
-      <label>البرنامج</label>
-      <select name="program_id" required>
-        <?php foreach ($programs as $p): ?>
-          <option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['title_ar']) ?> <?= $p['category'] === 'candle' ? '🕯️' : '' ?></option>
-        <?php endforeach; ?>
-      </select>
-    </p>
-    <div style="display:grid; grid-template-columns: 1fr 2fr; gap: 14px;">
-      <p><label>رقم اليوم</label><input type="number" name="day_number" required></p>
-      <p><label>عنوان اليوم</label><input type="text" name="title_ar" required></p>
-    </div>
-    <p><textarea name="body_ar" placeholder="محتوى اليوم"></textarea></p>
-    <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 14px;">
-      <p><label>المدة بالدقائق</label><input type="number" name="duration_min" value="3"></p>
-      <p style="align-self:center;"><label><input type="checkbox" name="is_locked"> مغلق (للمشتركين)</label></p>
-    </div>
-    <button type="submit">إضافة اليوم</button>
-  </form>
-</div>
-
-<div class="card">
-  <h3>البرامج</h3>
+  <h2 style="margin-top:0;">البرامج</h2>
   <table>
-    <thead><tr><th>#</th><th>المعرف</th><th>الفئة</th><th>العنوان</th><th>بريميوم؟</th><th>تدرّج</th><th>أيام</th></tr></thead>
+    <thead><tr>
+      <th>#</th><th>المعرف</th><th>الفئة</th><th>العنوان</th>
+      <th>أيام</th><th>تدرّج</th><th>الحالة</th><th>إجراءات</th>
+    </tr></thead>
     <tbody>
       <?php foreach ($programs as $p):
         $pdays = array_filter($days, fn($d) => $d['program_id'] === $p['id']); ?>
       <tr>
         <td><?= $p['id'] ?></td>
-        <td><?= htmlspecialchars($p['slug']) ?></td>
+        <td><code style="color:var(--text-muted); font-size:12px;"><?= htmlspecialchars($p['slug']) ?></code></td>
         <td>
           <?= htmlspecialchars($p['category']) ?>
           <?php if (!empty($p['icon'])): ?>
@@ -90,19 +62,40 @@
           <?php endif; ?>
         </td>
         <td><?= htmlspecialchars($p['title_ar']) ?></td>
-        <td>
-          <?= $p['is_premium']
-            ? '<span class="badge b-paid">بريميوم</span>'
-            : '<span class="badge b-mute">مجاني</span>' ?>
-        </td>
+        <td><?= count($pdays) ?></td>
         <td>
           <?php if (!empty($p['palette_start']) && !empty($p['palette_end'])): ?>
-            <span style="display:inline-block; width:48px; height:18px; border-radius:4px; background:linear-gradient(90deg, <?= htmlspecialchars($p['palette_start']) ?>, <?= htmlspecialchars($p['palette_end']) ?>);"></span>
+            <span title="<?= htmlspecialchars($p['palette_start']) ?> → <?= htmlspecialchars($p['palette_end']) ?>"
+                  style="display:inline-block; width:60px; height:20px; border-radius:6px; border:1px solid rgba(255,255,255,0.1); background:linear-gradient(90deg, <?= htmlspecialchars($p['palette_start']) ?>, <?= htmlspecialchars($p['palette_end']) ?>);"></span>
           <?php else: ?>
-            —
+            <span style="color:var(--text-muted);">—</span>
           <?php endif; ?>
         </td>
-        <td><?= count($pdays) ?></td>
+        <td>
+          <?php if ($p['is_active']): ?>
+            <span class="badge b-active">نشط</span>
+          <?php else: ?>
+            <span class="badge b-inactive">موقوف</span>
+          <?php endif; ?>
+          <?php if ($p['is_premium']): ?>
+            <span class="badge b-paid">بريميوم</span>
+          <?php endif; ?>
+        </td>
+        <td style="display:flex; gap:6px;">
+          <a href="?action=programs&edit=<?= $p['id'] ?>" class="btn btn-sm btn-ghost">تعديل</a>
+          <form method="post" class="inline">
+            <input type="hidden" name="csrf" value="<?= csrf() ?>">
+            <input type="hidden" name="op" value="toggle_program_active">
+            <input type="hidden" name="id" value="<?= $p['id'] ?>">
+            <button type="submit" class="btn-sm btn-ghost"><?= $p['is_active'] ? 'إيقاف' : 'تفعيل' ?></button>
+          </form>
+          <form method="post" class="inline" onsubmit="return confirm('حذف البرنامج وكل أيامه؟')">
+            <input type="hidden" name="csrf" value="<?= csrf() ?>">
+            <input type="hidden" name="op" value="delete_program">
+            <input type="hidden" name="id" value="<?= $p['id'] ?>">
+            <button type="submit" class="btn-danger btn-sm">حذف</button>
+          </form>
+        </td>
       </tr>
       <?php endforeach; ?>
     </tbody>

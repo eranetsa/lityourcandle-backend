@@ -311,6 +311,8 @@ function programs_index(): void
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $op = $_POST['op'] ?? '';
+        $redirect = '/admin/?action=programs';
+
         if ($op === 'create_program') {
             $id = DB::insert('programs', [
                 'slug'           => trim($_POST['slug']),
@@ -322,12 +324,40 @@ function programs_index(): void
                 'palette_start'  => normalize_hex($_POST['palette_start'] ?? ''),
                 'palette_end'    => normalize_hex($_POST['palette_end'] ?? ''),
                 'is_premium'     => isset($_POST['is_premium']) ? 1 : 0,
+                'sort_order'     => (int)($_POST['sort_order'] ?? 0),
                 'is_active'      => 1,
             ]);
             audit('create', 'program', $id);
+            $redirect = "/admin/?action=programs&edit=$id";
+        } elseif ($op === 'update_program') {
+            $id = (int)$_POST['id'];
+            DB::update('programs', [
+                'slug'           => trim($_POST['slug']),
+                'category'       => $_POST['category'],
+                'title_ar'       => trim($_POST['title_ar']),
+                'title_en'       => trim($_POST['title_en'] ?? '') ?: null,
+                'description_ar' => trim($_POST['description_ar'] ?? '') ?: null,
+                'icon'           => trim($_POST['icon'] ?? '') ?: null,
+                'palette_start'  => normalize_hex($_POST['palette_start'] ?? ''),
+                'palette_end'    => normalize_hex($_POST['palette_end'] ?? ''),
+                'is_premium'     => isset($_POST['is_premium']) ? 1 : 0,
+                'is_active'      => isset($_POST['is_active']) ? 1 : 0,
+                'sort_order'     => (int)($_POST['sort_order'] ?? 0),
+            ], 'id = :id', [':id' => $id]);
+            audit('update', 'program', $id);
+            $redirect = "/admin/?action=programs&edit=$id";
+        } elseif ($op === 'delete_program') {
+            $id = (int)$_POST['id'];
+            DB::run('DELETE FROM programs WHERE id = :id', [':id' => $id]);
+            audit('delete', 'program', $id);
+        } elseif ($op === 'toggle_program_active') {
+            $id = (int)$_POST['id'];
+            DB::run('UPDATE programs SET is_active = 1 - is_active WHERE id = :id', [':id' => $id]);
+            audit('toggle_active', 'program', $id);
         } elseif ($op === 'create_day') {
+            $programId = (int)$_POST['program_id'];
             $id = DB::insert('program_days', [
-                'program_id'   => (int)$_POST['program_id'],
+                'program_id'   => $programId,
                 'day_number'   => (int)$_POST['day_number'],
                 'title_ar'     => trim($_POST['title_ar']),
                 'body_ar'      => trim($_POST['body_ar'] ?? '') ?: null,
@@ -335,9 +365,41 @@ function programs_index(): void
                 'is_locked'    => isset($_POST['is_locked']) ? 1 : 0,
             ]);
             audit('create', 'program_day', $id);
+            $redirect = "/admin/?action=programs&edit=$programId#day-$id";
+        } elseif ($op === 'update_day') {
+            $id = (int)$_POST['id'];
+            $programId = (int)$_POST['program_id'];
+            DB::update('program_days', [
+                'day_number'   => (int)$_POST['day_number'],
+                'title_ar'     => trim($_POST['title_ar']),
+                'body_ar'      => trim($_POST['body_ar'] ?? '') ?: null,
+                'duration_min' => (int)($_POST['duration_min'] ?? 3),
+                'is_locked'    => isset($_POST['is_locked']) ? 1 : 0,
+            ], 'id = :id', [':id' => $id]);
+            audit('update', 'program_day', $id);
+            $redirect = "/admin/?action=programs&edit=$programId#day-$id";
+        } elseif ($op === 'delete_day') {
+            $id = (int)$_POST['id'];
+            $programId = (int)$_POST['program_id'];
+            DB::run('DELETE FROM program_days WHERE id = :id', [':id' => $id]);
+            audit('delete', 'program_day', $id);
+            $redirect = "/admin/?action=programs&edit=$programId";
         }
-        header('Location: /admin/?action=programs'); exit;
+        header("Location: $redirect"); exit;
     }
+
+    $editingId = isset($_GET['edit']) ? (int)$_GET['edit'] : 0;
+    if ($editingId > 0) {
+        $program = DB::one('SELECT * FROM programs WHERE id = :id', [':id' => $editingId]);
+        if (!$program) { header('Location: /admin/?action=programs'); exit; }
+        $days = DB::all(
+            'SELECT * FROM program_days WHERE program_id = :pid ORDER BY day_number',
+            [':pid' => $editingId]
+        );
+        render('program_edit', ['program' => $program, 'days' => $days]);
+        return;
+    }
+
     $programs = DB::all('SELECT * FROM programs ORDER BY sort_order, id');
     $days     = DB::all('SELECT * FROM program_days ORDER BY program_id, day_number');
     render('programs', ['programs' => $programs, 'days' => $days]);
