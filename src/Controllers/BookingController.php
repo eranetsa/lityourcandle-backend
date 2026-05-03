@@ -227,6 +227,39 @@ final class BookingController
             Response::error('invalid_state', 409);
         }
         DB::update('sessions', ['type' => $data['type']], 'id = :id', [':id' => $sess['id']]);
+
+        // Tapping voice/video on a confirmed (not yet started) session is
+        // the consultant's "go live" moment for a call — there's no chat
+        // message to auto-start the session here, so promote it now and
+        // notify the client to join the channel on their side.
+        if (empty($sess['started_at'])) {
+            DB::run(
+                "UPDATE sessions SET started_at = NOW(), status = 'in_progress'
+                 WHERE id = :id AND started_at IS NULL",
+                [':id' => $sess['id']]
+            );
+            $title = $data['type'] === 'video'
+                ? 'بدأت مكالمة الفيديو 🕯️'
+                : ($data['type'] === 'voice'
+                    ? 'بدأت المكالمة الصوتية 🕯️'
+                    : 'فُتحت جلستك 🕯️');
+            $body = $data['type'] === 'chat'
+                ? 'بدأ المستشار الجلسة، يمكنك الآن المحادثة.'
+                : 'بدأ المستشار المكالمة، يمكنك الانضمام الآن.';
+            DB::insert('notifications', [
+                'user_id'      => (int)$sess['user_id'],
+                'kind'         => 'session_reminder',
+                'title'        => $title,
+                'body'         => $body,
+                'payload_json' => json_encode([
+                    'session_id' => (int)$sess['id'],
+                    'kind'       => 'session_started',
+                    'type'       => $data['type'],
+                ], JSON_UNESCAPED_UNICODE),
+                'status'       => 'queued',
+            ]);
+        }
+
         Response::json(['ok' => true, 'type' => $data['type']]);
     }
 
