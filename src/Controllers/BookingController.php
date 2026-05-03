@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
+use App\Core\App;
 use App\Core\Crypto;
 use App\Core\DB;
 use App\Core\Request;
@@ -38,9 +39,13 @@ final class BookingController
 
         $sub = Subscription::current($uid);
         $useExtra = !empty($data['use_extra']);
+        $allowFree = (bool)App::config('bookings.allow_free', false);
         $paidWith = 'credit';
 
-        if ($useExtra) {
+        if ($allowFree) {
+            // Testing mode: anyone can book, no credit deducted, marked free
+            $paidWith = 'free';
+        } elseif ($useExtra) {
             $paidWith = 'extra';   // user must have already purchased extra via /subscriptions/extra-session
             if (!$sub || (int)$sub['sessions_remaining'] < 1) {
                 Response::error('no_session_credits', 402, ['needs_purchase' => true]);
@@ -54,7 +59,7 @@ final class BookingController
             }
         }
 
-        $sessionId = DB::transaction(function () use ($uid, $cons, $data, $mode, $paidWith, $sub) {
+        $sessionId = DB::transaction(function () use ($uid, $cons, $data, $mode, $paidWith, $sub, $allowFree) {
             $sid = DB::insert('sessions', [
                 'user_id'        => $uid,
                 'consultant_id'  => (int)$cons['id'],
@@ -68,10 +73,13 @@ final class BookingController
                 'paid_with'      => $paidWith,
                 'room_token'     => bin2hex(random_bytes(12)),
             ]);
-            DB::run(
-                'UPDATE subscriptions SET sessions_remaining = GREATEST(sessions_remaining - 1, 0) WHERE id = :id',
-                [':id' => $sub['id']]
-            );
+            // Only decrement session credits in real paid mode
+            if (!$allowFree && $sub) {
+                DB::run(
+                    'UPDATE subscriptions SET sessions_remaining = GREATEST(sessions_remaining - 1, 0) WHERE id = :id',
+                    [':id' => $sub['id']]
+                );
+            }
             return $sid;
         });
 

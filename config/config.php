@@ -53,6 +53,12 @@ return [
     'rate_limit' => [
         'per_minute' => (int)($_ENV['RATE_LIMIT_PER_MIN'] ?? 120),
     ],
+    'bookings' => [
+        // Temporary flag for testing: lets anyone book a session without
+        // a paid plan or session credit. Sessions are stored with
+        // paid_with='free' so they're easy to filter out later.
+        'allow_free' => filter_var($_ENV['ALLOW_FREE_BOOKINGS'] ?? false, FILTER_VALIDATE_BOOLEAN),
+    ],
     'plans' => [
         'free' => [
             'price'    => 0.00,
