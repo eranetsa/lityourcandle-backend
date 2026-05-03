@@ -328,6 +328,52 @@ function save_consultant_photo(array $file): string
 
 function sessions_index(): void
 {
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        csrf_check();
+        $op = $_POST['op'] ?? '';
+        if ($op === 'cancel') {
+            $id = (int)$_POST['id'];
+            $sess = DB::one(
+                "SELECT id, user_id, consultant_id, status, paid_with FROM sessions WHERE id = :id",
+                [':id' => $id]
+            );
+            if ($sess && in_array($sess['status'], ['pending','confirmed','in_progress'], true)) {
+                DB::transaction(function () use ($sess) {
+                    DB::run("UPDATE sessions SET status = 'canceled' WHERE id = :id", [':id' => $sess['id']]);
+                    if ($sess['paid_with'] !== 'free') {
+                        DB::run(
+                            'UPDATE subscriptions SET sessions_remaining = sessions_remaining + 1
+                             WHERE user_id = :uid ORDER BY id DESC LIMIT 1',
+                            [':uid' => $sess['user_id']]
+                        );
+                    }
+                });
+                DB::insert('notifications', [
+                    'user_id' => (int)$sess['user_id'],
+                    'kind'    => 'session_reminder',
+                    'title'   => 'تم إلغاء جلستك',
+                    'body'    => 'قام مدير النظام بإلغاء الجلسة، يمكنك إرسال طلب جديد.',
+                    'status'  => 'queued',
+                ]);
+                $cons = DB::one('SELECT user_id FROM consultants WHERE id = :id', [':id' => (int)$sess['consultant_id']]);
+                if ($cons && !empty($cons['user_id'])) {
+                    DB::insert('notifications', [
+                        'user_id' => (int)$cons['user_id'],
+                        'kind'    => 'session_reminder',
+                        'title'   => 'ألغى المدير الجلسة',
+                        'body'    => "تم إلغاء الجلسة #{$sess['id']} من قِبَل الإدارة.",
+                        'status'  => 'queued',
+                    ]);
+                }
+                audit('cancel', 'session', $id);
+            }
+        } elseif ($op === 'delete') {
+            $id = (int)$_POST['id'];
+            DB::run('DELETE FROM sessions WHERE id = :id', [':id' => $id]);
+            audit('delete', 'session', $id);
+        }
+        header('Location: /admin/?action=sessions'); exit;
+    }
     $rows = DB::all(
         "SELECT s.*, u.name AS user_name, c.name AS consultant_name
          FROM sessions s

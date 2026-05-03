@@ -37,6 +37,22 @@ final class BookingController
             Response::error('session_type_unsupported', 422);
         }
 
+        // Only one open booking at a time. The user can't queue a new request
+        // until the consultant ends or cancels the previous one.
+        $open = DB::one(
+            "SELECT id, consultant_id FROM sessions
+             WHERE user_id = :uid AND status IN ('pending','confirmed','in_progress')
+             ORDER BY id DESC LIMIT 1",
+            [':uid' => $uid]
+        );
+        if ($open) {
+            Response::error('open_session_exists', 409, [
+                'session_id'    => (int)$open['id'],
+                'consultant_id' => (int)$open['consultant_id'],
+                'message_ar'    => 'لديك طلب جلسة سابق لم يكتمل بعد، لا يمكنك إرسال طلب جديد حتى ينهيه المستشار.',
+            ]);
+        }
+
         $sub = Subscription::current($uid);
         $useExtra = !empty($data['use_extra']);
         $allowFree = (bool)App::config('bookings.allow_free', false);
@@ -157,7 +173,17 @@ final class BookingController
     public function show(Request $req): void
     {
         $sess = $this->loadOwned($req);
-        Response::json(['session' => $sess]);
+        // Enrich with the partner names so the chat header can show
+        // "your consultant" or "your client" without a second roundtrip.
+        $extra = DB::one(
+            'SELECT c.name AS consultant_name, c.photo_url AS consultant_photo,
+                    c.specialty, u.name AS client_name
+             FROM consultants c
+             LEFT JOIN users u ON u.id = :uid
+             WHERE c.id = :cid',
+            [':cid' => (int)$sess['consultant_id'], ':uid' => (int)$sess['user_id']]
+        );
+        Response::json(['session' => array_merge($sess, $extra ?? [])]);
     }
 
     public function start(Request $req): void
@@ -229,17 +255,53 @@ final class BookingController
     public function cancel(Request $req): void
     {
         $sess = $this->loadOwned($req);
-        if (!in_array($sess['status'], ['pending', 'confirmed'], true)) {
+        if (!in_array($sess['status'], ['pending', 'confirmed', 'in_progress'], true)) {
             Response::error('invalid_state', 409);
         }
+        $byConsultant = $req->userRole() === 'consultant' || $req->userRole() === 'admin';
         DB::transaction(function () use ($sess) {
             DB::run("UPDATE sessions SET status = 'canceled' WHERE id = :id", [':id' => $sess['id']]);
-            DB::run(
-                'UPDATE subscriptions SET sessions_remaining = sessions_remaining + 1
-                 WHERE user_id = :uid ORDER BY id DESC LIMIT 1',
-                [':uid' => $sess['user_id']]
-            );
+            // Refund a session credit only for paid bookings
+            if ($sess['paid_with'] !== 'free') {
+                DB::run(
+                    'UPDATE subscriptions SET sessions_remaining = sessions_remaining + 1
+                     WHERE user_id = :uid ORDER BY id DESC LIMIT 1',
+                    [':uid' => $sess['user_id']]
+                );
+            }
         });
+        // Notify the other party so they don't keep waiting
+        if ($byConsultant) {
+            DB::insert('notifications', [
+                'user_id'      => (int)$sess['user_id'],
+                'kind'         => 'session_reminder',
+                'title'        => 'تم إلغاء جلستك',
+                'body'         => 'قام المستشار بإلغاء الجلسة، يمكنك إرسال طلب جديد.',
+                'payload_json' => json_encode([
+                    'session_id' => (int)$sess['id'],
+                    'kind'       => 'session_canceled_by_consultant',
+                ], JSON_UNESCAPED_UNICODE),
+                'status'       => 'queued',
+            ]);
+        } else {
+            $consultant = DB::one(
+                'SELECT user_id FROM consultants WHERE id = :id',
+                [':id' => (int)$sess['consultant_id']]
+            );
+            if ($consultant && !empty($consultant['user_id'])) {
+                DB::insert('notifications', [
+                    'user_id'      => (int)$consultant['user_id'],
+                    'kind'         => 'session_reminder',
+                    'title'        => 'ألغى العميل الطلب',
+                    'body'         => 'تمّ إلغاء طلب الجلسة من قِبَل العميل.',
+                    'payload_json' => json_encode([
+                        'session_id' => (int)$sess['id'],
+                        'kind'       => 'session_canceled_by_client',
+                    ], JSON_UNESCAPED_UNICODE),
+                    'status'       => 'queued',
+                ]);
+            }
+        }
         Response::json(['ok' => true]);
     }
 
