@@ -14,10 +14,12 @@ CREATE TABLE users (
     phone           VARCHAR(32) DEFAULT NULL,
     password_hash   VARCHAR(255) NOT NULL,
     language        VARCHAR(8) NOT NULL DEFAULT 'ar',
-    role            ENUM('user','consultant','admin') NOT NULL DEFAULT 'user',
+    role            ENUM('user','consultant','admin','guest') NOT NULL DEFAULT 'user',
     avatar_url      VARCHAR(255) DEFAULT NULL,
     push_token      VARCHAR(255) DEFAULT NULL,
     push_platform   ENUM('ios','android','web') DEFAULT NULL,
+    device_id       VARCHAR(64) DEFAULT NULL,
+    platform        VARCHAR(20) DEFAULT NULL,
     trial_started_at DATETIME DEFAULT NULL,
     trial_ends_at   DATETIME DEFAULT NULL,
     consultant_id   BIGINT UNSIGNED DEFAULT NULL,
@@ -27,6 +29,7 @@ CREATE TABLE users (
     updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     UNIQUE KEY uniq_users_email (email),
+    UNIQUE KEY uniq_users_device_id (device_id),
     KEY idx_users_role (role),
     KEY idx_users_consultant (consultant_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
