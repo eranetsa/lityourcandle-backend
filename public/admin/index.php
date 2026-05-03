@@ -145,6 +145,8 @@ function users_index(): void
 function consultants_index(): void
 {
     $error = null;
+    $editingId = isset($_GET['edit']) ? (int)$_GET['edit'] : 0;
+
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $op = $_POST['op'] ?? '';
@@ -194,7 +196,10 @@ function consultants_index(): void
                         $error = $e->getMessage();
                     }
                 }
-                if (!$error) { header('Location: /admin/?action=consultants'); exit; }
+                if (!$error) {
+                    $back = $op === 'update' ? "/admin/?action=consultants&edit=$id" : '/admin/?action=consultants';
+                    header("Location: $back"); exit;
+                }
             }
         } elseif ($op === 'delete') {
             $id = (int)$_POST['id'];
@@ -208,6 +213,18 @@ function consultants_index(): void
             header('Location: /admin/?action=consultants'); exit;
         }
     }
+    if ($editingId > 0) {
+        $consultant = DB::one(
+            'SELECT c.*, u.email AS login_email
+             FROM consultants c LEFT JOIN users u ON u.id = c.user_id
+             WHERE c.id = :id',
+            [':id' => $editingId]
+        );
+        if (!$consultant) { header('Location: /admin/?action=consultants'); exit; }
+        render('consultant_edit', ['consultant' => $consultant, 'error' => $error]);
+        return;
+    }
+
     $rows = DB::all(
         'SELECT c.*, u.email AS login_email
          FROM consultants c LEFT JOIN users u ON u.id = c.user_id
