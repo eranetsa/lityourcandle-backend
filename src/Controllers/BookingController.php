@@ -139,7 +139,16 @@ final class BookingController
             $rows = DB::all(
                 'SELECT s.id, s.type, s.mode, s.status, s.scheduled_at, s.started_at, s.ended_at,
                         s.duration_min, s.post_rating, s.created_at, s.pre_mood, s.pre_issue,
-                        u.id AS client_id, u.name AS client_name, u.email AS client_email
+                        u.id AS client_id, u.name AS client_name, u.email AS client_email,
+                        (SELECT m.body FROM messages m
+                            WHERE m.session_id = s.id ORDER BY m.id DESC LIMIT 1) AS last_message,
+                        (SELECT m.sender_role FROM messages m
+                            WHERE m.session_id = s.id ORDER BY m.id DESC LIMIT 1) AS last_message_role,
+                        (SELECT m.created_at FROM messages m
+                            WHERE m.session_id = s.id ORDER BY m.id DESC LIMIT 1) AS last_message_at,
+                        (SELECT COUNT(*) FROM messages m
+                            WHERE m.session_id = s.id AND m.sender_role = \'user\'
+                              AND m.read_at IS NULL) AS unread_count
                  FROM sessions s
                  JOIN users u ON u.id = s.user_id
                  WHERE s.consultant_id = :cid
@@ -198,6 +207,27 @@ final class BookingController
             [':id' => $sess['id']]
         );
         Response::json(['ok' => true, 'started_at' => date('c'), 'room_token' => $sess['room_token']]);
+    }
+
+    /**
+     * Consultant-only: change the active conversation mode (chat/voice/video)
+     * mid-session. The polling on the client picks the new type up via
+     * /api/sessions/{id}/messages and switches its UI to the matching view.
+     */
+    public function setType(Request $req): void
+    {
+        if ($req->userRole() !== 'consultant' && $req->userRole() !== 'admin') {
+            Response::error('forbidden', 403);
+        }
+        $data = Validator::check($req->body, [
+            'type' => 'required|in:chat,voice,video',
+        ]);
+        $sess = $this->loadOwned($req);
+        if (!in_array($sess['status'], ['confirmed', 'in_progress'], true)) {
+            Response::error('invalid_state', 409);
+        }
+        DB::update('sessions', ['type' => $data['type']], 'id = :id', [':id' => $sess['id']]);
+        Response::json(['ok' => true, 'type' => $data['type']]);
     }
 
     /**

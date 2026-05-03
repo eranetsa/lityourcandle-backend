@@ -54,6 +54,7 @@ $router->post('/api/sessions/{id}/end',       [BookingController::class, 'end'],
 $router->post('/api/sessions/{id}/cancel',    [BookingController::class, 'cancel'],   [AuthMiddleware::class]);
 $router->post('/api/sessions/{id}/feedback',  [BookingController::class, 'feedback'], [AuthMiddleware::class]);
 $router->post('/api/sessions/{id}/schedule', [BookingController::class, 'schedule'], [AuthMiddleware::class]);
+$router->post('/api/sessions/{id}/type',     [BookingController::class, 'setType'],  [AuthMiddleware::class]);
 
 // Chat / Voice / Video
 $router->get ('/api/sessions/{id}/messages',  [ChatController::class, 'list'], [AuthMiddleware::class]);

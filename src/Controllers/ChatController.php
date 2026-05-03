@@ -24,7 +24,12 @@ final class ChatController
         $isConsultant = $req->userRole() === 'consultant' || $req->userRole() === 'admin';
         if (!$isConsultant && empty($sess['started_at'])
             && !in_array($sess['status'], ['in_progress', 'completed'], true)) {
-            Response::json(['messages' => [], 'started' => false]);
+            Response::json([
+                'messages' => [],
+                'started'  => false,
+                'type'     => $sess['type'],
+                'status'   => $sess['status'],
+            ]);
         }
 
         $rows = DB::all(
@@ -35,7 +40,27 @@ final class ChatController
              LIMIT 500',
             [':sid' => $sess['id'], ':aid' => $afterId]
         );
-        Response::json(['messages' => $rows, 'started' => true]);
+
+        // When the consultant pulls messages, mark all the client's unread
+        // messages as read so the consultant portal's "unread" highlight
+        // clears automatically.
+        if ($isConsultant) {
+            DB::run(
+                "UPDATE messages SET read_at = NOW()
+                 WHERE session_id = :sid AND sender_role = 'user' AND read_at IS NULL",
+                [':sid' => $sess['id']]
+            );
+        }
+
+        Response::json([
+            'messages' => $rows,
+            'started'  => true,
+            // Surface the current type/status so the polling client can flip
+            // its UI between chat / voice / video when the consultant
+            // changes mode mid-session.
+            'type'     => $sess['type'],
+            'status'   => $sess['status'],
+        ]);
     }
 
     public function send(Request $req): void
