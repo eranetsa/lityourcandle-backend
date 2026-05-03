@@ -75,12 +75,63 @@ final class BookingController
             return $sid;
         });
 
+        // Notify the consultant (if they have a linked user account) so they
+        // can open the portal and pick a time.
+        $consultant = DB::one(
+            'SELECT user_id, name FROM consultants WHERE id = :id',
+            [':id' => (int)$cons['id']]
+        );
+        if ($consultant && !empty($consultant['user_id'])) {
+            DB::insert('notifications', [
+                'user_id'      => (int)$consultant['user_id'],
+                'kind'         => 'session_reminder',
+                'title'        => 'طلب جلسة جديد',
+                'body'         => $mode === 'instant'
+                    ? 'لديك جلسة فورية تنتظر بدئها'
+                    : 'طلب حجز جديد — حدّد موعد الجلسة',
+                'payload_json' => json_encode([
+                    'session_id' => $sessionId,
+                    'mode'       => $mode,
+                    'kind'       => 'consultant_new_booking',
+                ], JSON_UNESCAPED_UNICODE),
+                'status'       => 'queued',
+            ]);
+        }
+
         Response::json(['session_id' => $sessionId], 201);
     }
 
     public function mine(Request $req): void
     {
         $uid = $req->userId();
+
+        // Consultants see sessions where they're the provider (newest first)
+        if ($req->userRole() === 'consultant') {
+            $cons = DB::one('SELECT id FROM consultants WHERE user_id = :uid', [':uid' => $uid]);
+            if (!$cons) {
+                Response::json(['sessions' => []]);
+            }
+            $rows = DB::all(
+                'SELECT s.id, s.type, s.mode, s.status, s.scheduled_at, s.started_at, s.ended_at,
+                        s.duration_min, s.post_rating, s.created_at, s.pre_mood, s.pre_issue,
+                        u.id AS client_id, u.name AS client_name, u.email AS client_email
+                 FROM sessions s
+                 JOIN users u ON u.id = s.user_id
+                 WHERE s.consultant_id = :cid
+                 ORDER BY
+                    CASE s.status
+                        WHEN \'pending\'     THEN 0
+                        WHEN \'confirmed\'   THEN 1
+                        WHEN \'in_progress\' THEN 2
+                        ELSE 3
+                    END,
+                    COALESCE(s.scheduled_at, s.created_at) ASC
+                 LIMIT 200',
+                [':cid' => $cons['id']]
+            );
+            Response::json(['sessions' => $rows, 'consultant_id' => (int)$cons['id']]);
+        }
+
         $rows = DB::all(
             'SELECT s.id, s.type, s.mode, s.status, s.scheduled_at, s.started_at, s.ended_at,
                     s.duration_min, s.post_rating, s.created_at,
@@ -112,6 +163,46 @@ final class BookingController
             [':id' => $sess['id']]
         );
         Response::json(['ok' => true, 'started_at' => date('c'), 'room_token' => $sess['room_token']]);
+    }
+
+    /**
+     * Consultant-only: pick a moment for a pending/confirmed session and
+     * notify the client. Body: { scheduled_at: "YYYY-MM-DD HH:MM" }
+     */
+    public function schedule(Request $req): void
+    {
+        if ($req->userRole() !== 'consultant') Response::error('forbidden', 403);
+
+        $data = Validator::check($req->body, [
+            'scheduled_at' => 'required|string|date',
+        ]);
+        $scheduledAt = date('Y-m-d H:i:s', strtotime((string)$data['scheduled_at']));
+
+        $sess = $this->loadOwned($req);
+        if (!in_array($sess['status'], ['pending', 'confirmed'], true)) {
+            Response::error('invalid_state', 409);
+        }
+
+        DB::update('sessions', [
+            'scheduled_at' => $scheduledAt,
+            'status'       => 'confirmed',
+        ], 'id = :id', [':id' => $sess['id']]);
+
+        // Notify the client
+        DB::insert('notifications', [
+            'user_id'      => (int)$sess['user_id'],
+            'kind'         => 'session_reminder',
+            'title'        => 'تم تأكيد موعد جلستك 🕯️',
+            'body'         => 'الموعد: ' . date('Y-m-d · H:i', strtotime($scheduledAt)),
+            'payload_json' => json_encode([
+                'session_id'   => (int)$sess['id'],
+                'scheduled_at' => $scheduledAt,
+                'kind'         => 'session_scheduled',
+            ], JSON_UNESCAPED_UNICODE),
+            'status'       => 'queued',
+        ]);
+
+        Response::json(['ok' => true, 'scheduled_at' => $scheduledAt, 'status' => 'confirmed']);
     }
 
     public function end(Request $req): void

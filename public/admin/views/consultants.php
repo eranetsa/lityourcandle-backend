@@ -41,6 +41,12 @@
       </div>
     </p>
 
+    <h3 style="margin-top:20px;">بيانات الدخول لمنصة المستشارين <small style="color:var(--text-muted); font-weight:500;">(اختياري — لتفعيل دخول المستشار من التطبيق)</small></h3>
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+      <p><label>البريد الإلكتروني</label><input type="email" name="login_email" placeholder="consultant@example.com"></p>
+      <p><label>كلمة المرور</label><input type="password" name="login_password" placeholder="8 أحرف على الأقل"></p>
+    </div>
+
     <button type="submit">➕ إضافة مستشار</button>
   </form>
 </div>
@@ -48,7 +54,7 @@
 <div class="card">
   <h2>المستشارون</h2>
   <table>
-    <thead><tr><th>#</th><th>الصورة</th><th>الاسم</th><th>التخصص</th><th>السعر</th><th>التقييم</th><th>متاح؟</th><th>إجراء</th></tr></thead>
+    <thead><tr><th>#</th><th>الصورة</th><th>الاسم</th><th>التخصص</th><th>السعر</th><th>الدخول</th><th>متاح؟</th><th>إجراء</th></tr></thead>
     <tbody>
       <?php foreach ($rows as $r): ?>
       <tr>
@@ -63,7 +69,13 @@
         <td><?= htmlspecialchars($r['name']) ?></td>
         <td><?= htmlspecialchars($r['specialty']) ?></td>
         <td><?= number_format((float)$r['price_per_session'], 0) ?> <small style="color:var(--text-muted);"><?= htmlspecialchars($r['currency']) ?></small></td>
-        <td><?= number_format((float)$r['rating'], 2) ?> <small style="color:var(--text-muted);">(<?= $r['rating_count'] ?>)</small></td>
+        <td>
+          <?php if (!empty($r['login_email'])): ?>
+            <small style="color:var(--text-muted);"><?= htmlspecialchars($r['login_email']) ?></small>
+          <?php else: ?>
+            <span class="badge b-mute">غير مفعّل</span>
+          <?php endif; ?>
+        </td>
         <td><span class="badge <?= $r['is_available'] ? 'b-active' : 'b-inactive' ?>"><?= $r['is_available'] ? 'نعم' : 'لا' ?></span></td>
         <td>
           <form method="post" class="inline" onsubmit="return confirm('حذف هذا المستشار؟')">

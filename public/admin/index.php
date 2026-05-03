@@ -176,7 +176,25 @@ function consultants_index(): void
                     DB::update('consultants', $data, 'id = :id', [':id' => $id]);
                     audit('update', 'consultant', $id);
                 }
-                header('Location: /admin/?action=consultants'); exit;
+
+                // Optional credentials: lets the consultant log into the
+                // mobile app's "منصة المستشارين". Email + password create or
+                // update the linked users row (role='consultant').
+                $loginEmail = strtolower(trim($_POST['login_email'] ?? ''));
+                $loginPwd   = (string)($_POST['login_password'] ?? '');
+                if ($loginEmail !== '' || $loginPwd !== '') {
+                    try {
+                        save_consultant_credentials(
+                            (int)$id,
+                            $data['name'],
+                            $loginEmail,
+                            $loginPwd
+                        );
+                    } catch (\RuntimeException $e) {
+                        $error = $e->getMessage();
+                    }
+                }
+                if (!$error) { header('Location: /admin/?action=consultants'); exit; }
             }
         } elseif ($op === 'delete') {
             $id = (int)$_POST['id'];
@@ -190,8 +208,73 @@ function consultants_index(): void
             header('Location: /admin/?action=consultants'); exit;
         }
     }
-    $rows = DB::all('SELECT * FROM consultants ORDER BY id DESC LIMIT 200');
+    $rows = DB::all(
+        'SELECT c.*, u.email AS login_email
+         FROM consultants c LEFT JOIN users u ON u.id = c.user_id
+         ORDER BY c.id DESC LIMIT 200'
+    );
     render('consultants', ['rows' => $rows, 'error' => $error]);
+}
+
+/**
+ * Create or update the user account linked to a consultant so they can log
+ * into the mobile app's "منصة المستشارين". Both email and password are
+ * required when setting up the first time. On subsequent edits, an empty
+ * password leaves the existing one untouched; an empty email is rejected.
+ */
+function save_consultant_credentials(int $consultantId, string $name, string $email, string $password): void
+{
+    if ($email === '') {
+        throw new \RuntimeException('البريد الإلكتروني مطلوب لتفعيل دخول المستشار');
+    }
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        throw new \RuntimeException('صيغة البريد الإلكتروني غير صحيحة');
+    }
+    $existing = \App\Core\DB::one(
+        'SELECT u.id, u.email FROM users u
+         JOIN consultants c ON c.user_id = u.id
+         WHERE c.id = :cid',
+        [':cid' => $consultantId]
+    );
+
+    if ($existing) {
+        // Reject if the new email is taken by someone else
+        $other = \App\Core\DB::one(
+            'SELECT id FROM users WHERE email = :e AND id != :id',
+            [':e' => $email, ':id' => $existing['id']]
+        );
+        if ($other) {
+            throw new \RuntimeException('البريد الإلكتروني مستخدم بالفعل');
+        }
+        $update = ['email' => $email, 'name' => $name, 'role' => 'consultant'];
+        if ($password !== '') {
+            if (strlen($password) < 8) {
+                throw new \RuntimeException('كلمة المرور يجب أن تكون 8 أحرف على الأقل');
+            }
+            $update['password_hash'] = \App\Core\Auth::hashPassword($password);
+        }
+        \App\Core\DB::update('users', $update, 'id = :id', [':id' => $existing['id']]);
+    } else {
+        if ($password === '' || strlen($password) < 8) {
+            throw new \RuntimeException('كلمة المرور يجب أن تكون 8 أحرف على الأقل');
+        }
+        $owner = \App\Core\DB::one('SELECT id FROM users WHERE email = :e', [':e' => $email]);
+        if ($owner) {
+            throw new \RuntimeException('البريد الإلكتروني مستخدم بالفعل');
+        }
+        $userId = \App\Core\DB::insert('users', [
+            'name'          => $name,
+            'email'         => $email,
+            'password_hash' => \App\Core\Auth::hashPassword($password),
+            'role'          => 'consultant',
+            'language'      => 'ar',
+        ]);
+        \App\Core\DB::run(
+            'UPDATE consultants SET user_id = :uid WHERE id = :cid',
+            [':uid' => $userId, ':cid' => $consultantId]
+        );
+    }
+    audit('credentials', 'consultant', $consultantId);
 }
 
 /**
