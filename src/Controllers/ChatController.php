@@ -16,6 +16,17 @@ final class ChatController
         $sess = $this->ensureMember($req);
         $afterId = (int)($req->query['after_id'] ?? 0);
 
+        // Gate: the client can't read messages until the consultant has
+        // officially started the session (started_at set, or the session is
+        // already in_progress / completed). Consultants and admins always see
+        // everything. The app polls this endpoint every few seconds, so as
+        // soon as the consultant sends the first word the client gets it.
+        $isConsultant = $req->userRole() === 'consultant' || $req->userRole() === 'admin';
+        if (!$isConsultant && empty($sess['started_at'])
+            && !in_array($sess['status'], ['in_progress', 'completed'], true)) {
+            Response::json(['messages' => [], 'started' => false]);
+        }
+
         $rows = DB::all(
             'SELECT id, sender_id, sender_role, body, attachment_url, read_at, created_at
              FROM messages
@@ -24,13 +35,13 @@ final class ChatController
              LIMIT 500',
             [':sid' => $sess['id'], ':aid' => $afterId]
         );
-        Response::json(['messages' => $rows]);
+        Response::json(['messages' => $rows, 'started' => true]);
     }
 
     public function send(Request $req): void
     {
         $sess = $this->ensureMember($req);
-        if (!in_array($sess['status'], ['confirmed', 'in_progress'], true)) {
+        if (!in_array($sess['status'], ['pending', 'confirmed', 'in_progress'], true)) {
             Response::error('session_not_active', 409);
         }
         $data = Validator::check($req->body, [
@@ -38,6 +49,16 @@ final class ChatController
             'attachment_url' => 'string|max:255',
         ]);
         $role = $req->userRole() === 'consultant' ? 'consultant' : 'user';
+
+        // Block the client from messaging until the consultant has started.
+        // Once the consultant types anything, the session becomes live for
+        // both sides.
+        if ($role !== 'consultant' && empty($sess['started_at'])) {
+            Response::error('session_not_started', 409, [
+                'message_ar' => 'الجلسة لم تبدأ بعد، انتظر حتى يفتحها المستشار.',
+            ]);
+        }
+
         $msgId = DB::insert('messages', [
             'session_id'     => $sess['id'],
             'sender_id'      => $req->userId(),
@@ -45,6 +66,29 @@ final class ChatController
             'body'           => $data['body'],
             'attachment_url' => $data['attachment_url'] ?? null,
         ]);
+
+        // Auto-start on the consultant's first message.
+        if ($role === 'consultant' && empty($sess['started_at'])) {
+            DB::run(
+                "UPDATE sessions SET started_at = NOW(), status = 'in_progress'
+                 WHERE id = :id AND started_at IS NULL",
+                [':id' => $sess['id']]
+            );
+            // Notify the client so their app can swap the waiting screen
+            // for the live chat (the polling will also pick this up).
+            DB::insert('notifications', [
+                'user_id'      => (int)$sess['user_id'],
+                'kind'         => 'session_reminder',
+                'title'        => 'فُتحت جلستك 🕯️',
+                'body'         => 'بدأ المستشار الجلسة، يمكنك الآن المحادثة.',
+                'payload_json' => json_encode([
+                    'session_id' => (int)$sess['id'],
+                    'kind'       => 'session_started',
+                ], JSON_UNESCAPED_UNICODE),
+                'status'       => 'queued',
+            ]);
+        }
+
         Response::json(['message_id' => $msgId, 'created_at' => date('c')], 201);
     }
 

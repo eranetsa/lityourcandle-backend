@@ -75,14 +75,18 @@ final class BookingController
             }
         }
 
-        $sessionId = DB::transaction(function () use ($uid, $cons, $data, $mode, $paidWith, $sub, $allowFree) {
+        $sessionId = DB::transaction(function () use ($uid, $cons, $data, $paidWith, $sub, $allowFree) {
+            // All new bookings are pending until the consultant schedules
+            // them — instant mode is no longer honored. The consultant must
+            // pick a time, and only after they send the first message does
+            // the session become live for the client.
             $sid = DB::insert('sessions', [
                 'user_id'        => $uid,
                 'consultant_id'  => (int)$cons['id'],
                 'type'           => $data['type'],
-                'mode'           => $mode,
-                'status'         => $mode === 'instant' ? 'confirmed' : 'pending',
-                'scheduled_at'   => $data['scheduled_at'] ?? null,
+                'mode'           => 'scheduled',
+                'status'         => 'pending',
+                'scheduled_at'   => null,
                 'pre_mood'       => $data['pre_mood'] ?? null,
                 'pre_issue'      => $data['pre_issue'] ?? null,
                 'pre_ai_summary' => $data['pre_ai_summary'] ?? null,
@@ -110,12 +114,9 @@ final class BookingController
                 'user_id'      => (int)$consultant['user_id'],
                 'kind'         => 'session_reminder',
                 'title'        => 'طلب جلسة جديد',
-                'body'         => $mode === 'instant'
-                    ? 'لديك جلسة فورية تنتظر بدئها'
-                    : 'طلب حجز جديد — حدّد موعد الجلسة',
+                'body'         => 'طلب حجز جديد — حدّد موعد الجلسة',
                 'payload_json' => json_encode([
                     'session_id' => $sessionId,
-                    'mode'       => $mode,
                     'kind'       => 'consultant_new_booking',
                 ], JSON_UNESCAPED_UNICODE),
                 'status'       => 'queued',
