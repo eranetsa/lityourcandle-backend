@@ -45,6 +45,15 @@ else
         composer install --no-dev --optimize-autoloader --no-interaction --working-dir="$APP_DIR"
 fi
 
+# Database migrations: idempotent, no-op when already applied.
+# Runs after composer so new namespaces in src/ are autoloadable, and
+# before the service reload so freshly-shipped code never touches a
+# yet-unmigrated schema.
+sudo -u www-data -H php "$APP_DIR/bin/migrate.php" || {
+    echo "migrate failed — aborting deploy"
+    exit 1
+}
+
 # Permissions
 chown -R www-data:www-data "$APP_DIR"
 find "$APP_DIR" -path "$APP_DIR/vendor" -prune -o -type d -print0 | xargs -0 -r chmod 750

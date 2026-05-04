@@ -4,6 +4,7 @@ declare(strict_types=1);
 use App\Controllers\AiController;
 use App\Controllers\AuthController;
 use App\Controllers\BookingController;
+use App\Controllers\CallController;
 use App\Controllers\ChatController;
 use App\Controllers\ConsultantController;
 use App\Controllers\DailyMessageController;
@@ -60,6 +61,15 @@ $router->post('/api/sessions/{id}/type',     [BookingController::class, 'setType
 $router->get ('/api/sessions/{id}/messages',  [ChatController::class, 'list'], [AuthMiddleware::class]);
 $router->post('/api/sessions/{id}/messages',  [ChatController::class, 'send'], [AuthMiddleware::class]);
 $router->get ('/api/sessions/{id}/rtc-token', [ChatController::class, 'rtcToken'], [AuthMiddleware::class]);
+
+// Calling — invite/accept/decline/cancel/current.
+// Ringing is driven exclusively by `call_invites.status='ringing'`; nothing
+// else (session.start, session.type, etc.) ever raises a ring.
+$router->post('/api/sessions/{id}/call/invite',   [CallController::class, 'invite'],  [AuthMiddleware::class]);
+$router->get ('/api/sessions/{id}/call/current',  [CallController::class, 'current'], [AuthMiddleware::class]);
+$router->post('/api/calls/{invite_id}/accept',    [CallController::class, 'accept'],  [AuthMiddleware::class]);
+$router->post('/api/calls/{invite_id}/decline',   [CallController::class, 'decline'], [AuthMiddleware::class]);
+$router->post('/api/calls/{invite_id}/cancel',    [CallController::class, 'cancel'],  [AuthMiddleware::class]);
 
 // AI شمعة
 $router->post('/api/ai/candle', [AiController::class, 'candle'], [AuthMiddleware::class, RateLimitMiddleware::class]);

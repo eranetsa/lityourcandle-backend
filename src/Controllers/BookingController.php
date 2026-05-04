@@ -228,38 +228,11 @@ final class BookingController
         }
         DB::update('sessions', ['type' => $data['type']], 'id = :id', [':id' => $sess['id']]);
 
-        // Tapping voice/video on a confirmed (not yet started) session is
-        // the consultant's "go live" moment for a call — there's no chat
-        // message to auto-start the session here, so promote it now and
-        // notify the client to join the channel on their side.
-        if (empty($sess['started_at'])) {
-            DB::run(
-                "UPDATE sessions SET started_at = NOW(), status = 'in_progress'
-                 WHERE id = :id AND started_at IS NULL",
-                [':id' => $sess['id']]
-            );
-            $title = $data['type'] === 'video'
-                ? 'بدأت مكالمة الفيديو 🕯️'
-                : ($data['type'] === 'voice'
-                    ? 'بدأت المكالمة الصوتية 🕯️'
-                    : 'فُتحت جلستك 🕯️');
-            $body = $data['type'] === 'chat'
-                ? 'بدأ المستشار الجلسة، يمكنك الآن المحادثة.'
-                : 'بدأ المستشار المكالمة، يمكنك الانضمام الآن.';
-            DB::insert('notifications', [
-                'user_id'      => (int)$sess['user_id'],
-                'kind'         => 'session_reminder',
-                'title'        => $title,
-                'body'         => $body,
-                'payload_json' => json_encode([
-                    'session_id' => (int)$sess['id'],
-                    'kind'       => 'session_started',
-                    'type'       => $data['type'],
-                ], JSON_UNESCAPED_UNICODE),
-                'status'       => 'queued',
-            ]);
-        }
-
+        // setType is now purely a *mode* switch (chat ↔ voice ↔ video).
+        // It never raises a ring and never auto-promotes the session: that
+        // was the source of the "client phone rings just from opening the
+        // app" bug. Ringing is driven exclusively by /call/invite, and chat
+        // sessions go live on the consultant's first message (ChatController).
         Response::json(['ok' => true, 'type' => $data['type']]);
     }
 

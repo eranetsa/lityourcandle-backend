@@ -10,56 +10,119 @@ use GuzzleHttp\Client;
 
 /**
  * Sends push notifications via FCM (Android/Web) and APNs HTTP/2 (iOS).
- * Records the result back into the `notifications` table.
+ *
+ * For incoming-call notifications (`kind = 'incoming_call'`) we ramp the
+ * payload up so it actually wakes the device:
+ *   • iOS:     interruption-level=time-sensitive, custom sound `ringtone.caf`,
+ *              priority 10. (PushKit / VoIP would be ideal but requires
+ *              CallKit integration on the client; this is the best we can
+ *              do with a regular alert push.)
+ *   • Android: priority=high data-only message routed to the "calls"
+ *              notification channel with vibration + bypass-DND.
+ *
+ * Tokens are fanned out across every row in `push_tokens` for the user
+ * (multi-device). For backwards compatibility we still fall through to
+ * the legacy `users.push_token` column when no rows exist.
  */
 final class PushService
 {
     public function send(int $notificationId): bool
     {
         $n = DB::one(
-            'SELECT n.*, u.push_token, u.push_platform
-             FROM notifications n JOIN users u ON u.id = n.user_id
-             WHERE n.id = :id',
+            'SELECT * FROM notifications WHERE id = :id',
             [':id' => $notificationId]
         );
-        if (!$n || empty($n['push_token'])) {
+        if (!$n) {
+            return false;
+        }
+
+        $tokens = $this->resolveTokens((int)$n['user_id']);
+        if (empty($tokens)) {
             DB::run("UPDATE notifications SET status = 'failed' WHERE id = :id", [':id' => $notificationId]);
             return false;
         }
 
-        $ok = match ($n['push_platform']) {
-            'ios'     => $this->sendApns($n),
-            'android' => $this->sendFcm($n),
-            'web'     => $this->sendFcm($n),
-            default   => false,
-        };
+        $anyOk = false;
+        foreach ($tokens as $tok) {
+            $ok = match ($tok['platform']) {
+                'ios'     => $this->sendApns($n, $tok),
+                'android' => $this->sendFcm($n, $tok),
+                'web'     => $this->sendFcm($n, $tok),
+                default   => false,
+            };
+            $anyOk = $anyOk || $ok;
+        }
 
         DB::run(
             'UPDATE notifications SET status = :s, sent_at = NOW() WHERE id = :id',
-            [':s' => $ok ? 'sent' : 'failed', ':id' => $notificationId]
+            [':s' => $anyOk ? 'sent' : 'failed', ':id' => $notificationId]
         );
-        return $ok;
+        return $anyOk;
     }
 
-    private function sendFcm(array $n): bool
+    /**
+     * @return list<array{token:string, platform:string, voip_token:?string}>
+     */
+    private function resolveTokens(int $userId): array
+    {
+        $rows = DB::all(
+            'SELECT token, platform, voip_token FROM push_tokens WHERE user_id = :uid',
+            [':uid' => $userId]
+        );
+        if ($rows) {
+            return $rows;
+        }
+        // Backwards compat: legacy single-token column on `users`.
+        $u = DB::one('SELECT push_token, push_platform FROM users WHERE id = :id', [':id' => $userId]);
+        if ($u && !empty($u['push_token']) && !empty($u['push_platform'])) {
+            return [[
+                'token'      => $u['push_token'],
+                'platform'   => $u['push_platform'],
+                'voip_token' => null,
+            ]];
+        }
+        return [];
+    }
+
+    private function sendFcm(array $n, array $tok): bool
     {
         $key = (string)App::config('push.fcm_server_key');
         if ($key === '') return false;
+        $isCall = ($n['kind'] ?? '') === 'incoming_call';
+        $data   = json_decode($n['payload_json'] ?? 'null', true) ?: [];
+
         try {
+            $body = [
+                'to'       => $tok['token'],
+                'priority' => 'high',
+                'data'     => $data + [
+                    'title' => $n['title'],
+                    'body'  => $n['body'],
+                    'kind'  => $n['kind'],
+                ],
+            ];
+            if ($isCall) {
+                // Data-only on calls so the app's headless task can take
+                // over and drive a full-screen ringer + custom sound. The
+                // app routes incoming_call data into the "calls" channel.
+                $body['android'] = [
+                    'priority' => 'high',
+                    'ttl'      => '45s',
+                ];
+            } else {
+                $body['notification'] = [
+                    'title' => $n['title'],
+                    'body'  => $n['body'],
+                ];
+            }
+
             $c = new Client(['timeout' => 10]);
             $c->post('https://fcm.googleapis.com/fcm/send', [
                 'headers' => [
                     'Authorization' => 'key=' . $key,
                     'Content-Type'  => 'application/json',
                 ],
-                'json' => [
-                    'to' => $n['push_token'],
-                    'notification' => [
-                        'title' => $n['title'],
-                        'body'  => $n['body'],
-                    ],
-                    'data' => json_decode($n['payload_json'] ?? 'null', true) ?: [],
-                ],
+                'json' => $body,
             ]);
             return true;
         } catch (\Throwable $e) {
@@ -68,7 +131,7 @@ final class PushService
         }
     }
 
-    private function sendApns(array $n): bool
+    private function sendApns(array $n, array $tok): bool
     {
         $cfg = App::config('push');
         $keyPath = (string)$cfg['apns_key_path'];
@@ -79,22 +142,34 @@ final class PushService
             $jwt = $this->apnsJwt($cfg['apns_key_id'], $cfg['apns_team_id'], $keyPath);
             if (!$jwt) return false;
             $bundle = $cfg['apns_bundle_id'];
-            $url = 'https://api.push.apple.com/3/device/' . rawurlencode($n['push_token']);
+
+            $isCall = ($n['kind'] ?? '') === 'incoming_call';
+            $extra  = json_decode($n['payload_json'] ?? 'null', true) ?: [];
+
+            $aps = [
+                'alert' => ['title' => $n['title'], 'body' => $n['body']],
+                'sound' => $isCall ? 'ringtone.caf' : 'default',
+            ];
+            if ($isCall) {
+                $aps['interruption-level'] = 'time-sensitive';
+                // Push the alert through even if Focus is on.
+                $aps['relevance-score']    = 1.0;
+            }
+
             $payload = json_encode([
-                'aps' => [
-                    'alert' => ['title' => $n['title'], 'body' => $n['body']],
-                    'sound' => 'default',
-                ],
-                'data' => json_decode($n['payload_json'] ?? 'null', true) ?: [],
+                'aps'  => $aps,
+                'data' => $extra + ['kind' => $n['kind']],
             ], JSON_UNESCAPED_UNICODE);
 
-            $ch = curl_init($url);
+            $url = 'https://api.push.apple.com/3/device/' . rawurlencode($tok['token']);
+            $ch  = curl_init($url);
             curl_setopt_array($ch, [
                 CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_2_0,
                 CURLOPT_HTTPHEADER => [
                     'authorization: bearer ' . $jwt,
                     'apns-topic: ' . $bundle,
                     'apns-push-type: alert',
+                    'apns-priority: ' . ($isCall ? '10' : '5'),
                     'content-type: application/json',
                 ],
                 CURLOPT_POST => true,

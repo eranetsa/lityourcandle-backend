@@ -42,9 +42,35 @@ final class UserController
     public function savePushToken(Request $req): void
     {
         $data = Validator::check($req->body, [
-            'token'    => 'required|string|max:255',
-            'platform' => 'required|in:ios,android,web',
+            'token'      => 'required|string|max:255',
+            'platform'   => 'required|in:ios,android,web',
+            'voip_token' => 'string|max:255',
+            'device_id'  => 'string|max:64',
         ]);
+
+        // Upsert into push_tokens (multi-device). The same token from a
+        // different user just rebinds — UNIQUE(token) takes care of that.
+        DB::run(
+            'INSERT INTO push_tokens (user_id, token, platform, voip_token, device_id, last_seen_at)
+             VALUES (:uid, :tok, :plat, :voip, :did, NOW())
+             ON DUPLICATE KEY UPDATE
+                 user_id = VALUES(user_id),
+                 platform = VALUES(platform),
+                 voip_token = VALUES(voip_token),
+                 device_id = VALUES(device_id),
+                 last_seen_at = NOW()',
+            [
+                ':uid'  => $req->userId(),
+                ':tok'  => $data['token'],
+                ':plat' => $data['platform'],
+                ':voip' => $data['voip_token'] ?? null,
+                ':did'  => $data['device_id'] ?? null,
+            ]
+        );
+
+        // Backwards-compat: keep the legacy single-token columns on `users`
+        // populated so older PushService callers (and the admin dashboard)
+        // keep working until they migrate to push_tokens.
         DB::update('users',
             ['push_token' => $data['token'], 'push_platform' => $data['platform']],
             'id = :id', [':id' => $req->userId()]
