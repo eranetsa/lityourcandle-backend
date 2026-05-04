@@ -8,19 +8,19 @@ use RuntimeException;
 /**
  * Agora AccessToken2 ("007") builder.
  *
- * Reference: https://github.com/AgoraIO/Tools/tree/master/DynamicKey/AgoraDynamicKey
+ * Reference: https://github.com/AgoraIO/Tools/blob/master/DynamicKey/AgoraDynamicKey/php/src/AccessToken2.php
  *
  * Token format:
- *   "007" + base64( packString(signature) + info )
+ *   "007" + base64( deflate( packString(signature) + info ) )
  *
  * info:
  *   packString(appId) + uint32(issueTs) + uint32(expire_ttl) + uint32(salt)
- *   + uint16(serviceCount) + each service.pack()
+ *   + uint16(serviceCount) + each service.pack() (services keyed/sorted by type)
  *
- * Signing key:
- *   k1 = HMAC-SHA256( uint32(issueTs), appCert )
- *   k  = HMAC-SHA256( uint32(salt),   k1 )
- *   signature = HMAC-SHA256( info, k )
+ * Signing key (note: in HMAC the *short* uint32 is the KEY, the cert is the data):
+ *   k1 = HMAC-SHA256( msg=appCert, key=uint32(issueTs) )
+ *   k  = HMAC-SHA256( msg=k1,      key=uint32(salt)    )
+ *   signature = HMAC-SHA256( msg=info, key=k )
  */
 final class AccessToken2
 {
@@ -60,14 +60,19 @@ final class AccessToken2
               . Util::packUint32($this->salt)
               . Util::packUint16(count($this->services));
 
+        ksort($this->services);
         foreach ($this->services as $service) {
             $info .= $service->pack();
         }
 
         $signature = hash_hmac('sha256', $info, $this->signingKey(), true);
-        $content   = Util::packString($signature) . $info;
+        $payload   = Util::packString($signature) . $info;
+        $deflated  = zlib_encode($payload, ZLIB_ENCODING_DEFLATE);
+        if ($deflated === false) {
+            throw new RuntimeException('agora_deflate_failed');
+        }
 
-        return self::VERSION . base64_encode($content);
+        return self::VERSION . base64_encode($deflated);
     }
 
     public function getIssueTs(): int
@@ -82,7 +87,10 @@ final class AccessToken2
 
     private function signingKey(): string
     {
-        $k1 = hash_hmac('sha256', Util::packUint32($this->issueTs), $this->appCert, true);
-        return hash_hmac('sha256', Util::packUint32($this->salt), $k1, true);
+        // hash_hmac($algo, $data, $key) — KEY is the 3rd arg.
+        // Agora keys the HMAC with the short uint32 (issueTs / salt) and uses
+        // the longer cert / intermediate hash as the *message*.
+        $k1 = hash_hmac('sha256', $this->appCert, Util::packUint32($this->issueTs), true);
+        return hash_hmac('sha256', $k1, Util::packUint32($this->salt), true);
     }
 }
