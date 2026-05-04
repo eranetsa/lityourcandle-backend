@@ -217,6 +217,36 @@ final class CallController
         Response::json(['invite' => $this->serializeInvite($row)]);
     }
 
+    /**
+     * GET /api/calls/current — user-scoped: returns the latest ringing
+     * invite addressed to *me*, joined with the caller's profile so the
+     * receiver's UI can render Accept/Decline without a second roundtrip.
+     * Used by the app on launch / WS reconnect to resume the ring.
+     */
+    public function myCurrent(Request $req): void
+    {
+        $row = DB::one(
+            "SELECT ci.*, u.name AS from_name, u.avatar_url AS from_avatar
+               FROM call_invites ci
+               JOIN users u ON u.id = ci.from_user_id
+              WHERE ci.to_user_id = :uid
+                AND ci.status = 'ringing'
+                AND ci.expires_at > NOW()
+              ORDER BY ci.id DESC LIMIT 1",
+            [':uid' => $req->userId()]
+        );
+        if (!$row) {
+            Response::json(['invite' => null]);
+        }
+        $payload = $this->serializeInvite($row);
+        $payload['from'] = [
+            'id'         => (int)$row['from_user_id'],
+            'name'       => $row['from_name'],
+            'avatar_url' => $row['from_avatar'],
+        ];
+        Response::json(['invite' => $payload]);
+    }
+
     /* ---------------------------------------------------------------- */
 
     private function loadSessionForConsultant(Request $req): array

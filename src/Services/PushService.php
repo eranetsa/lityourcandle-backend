@@ -100,19 +100,21 @@ final class PushService
                     'body'  => $n['body'],
                     'kind'  => $n['kind'],
                 ],
+                'notification' => [
+                    'title' => $n['title'],
+                    'body'  => $n['body'],
+                    // Routing call notifications through the high-importance
+                    // "incoming-call" channel is what makes the device ring
+                    // even when the app is killed (data-only messages do
+                    // nothing on a killed app for most OEMs).
+                    'sound'              => $isCall ? 'incoming_call' : 'default',
+                    'android_channel_id' => $isCall ? 'incoming-call' : 'default',
+                ],
             ];
             if ($isCall) {
-                // Data-only on calls so the app's headless task can take
-                // over and drive a full-screen ringer + custom sound. The
-                // app routes incoming_call data into the "calls" channel.
                 $body['android'] = [
                     'priority' => 'high',
                     'ttl'      => '45s',
-                ];
-            } else {
-                $body['notification'] = [
-                    'title' => $n['title'],
-                    'body'  => $n['body'],
                 ];
             }
 

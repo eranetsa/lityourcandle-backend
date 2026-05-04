@@ -67,6 +67,7 @@ $router->get ('/api/sessions/{id}/rtc-token', [ChatController::class, 'rtcToken'
 // else (session.start, session.type, etc.) ever raises a ring.
 $router->post('/api/sessions/{id}/call/invite',   [CallController::class, 'invite'],  [AuthMiddleware::class]);
 $router->get ('/api/sessions/{id}/call/current',  [CallController::class, 'current'], [AuthMiddleware::class]);
+$router->get ('/api/calls/current',               [CallController::class, 'myCurrent'], [AuthMiddleware::class]);
 $router->post('/api/calls/{invite_id}/accept',    [CallController::class, 'accept'],  [AuthMiddleware::class]);
 $router->post('/api/calls/{invite_id}/decline',   [CallController::class, 'decline'], [AuthMiddleware::class]);
 $router->post('/api/calls/{invite_id}/cancel',    [CallController::class, 'cancel'],  [AuthMiddleware::class]);
