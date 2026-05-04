@@ -138,12 +138,17 @@ final class PushService
         $cfg = App::config('push');
         $keyPath = (string)$cfg['apns_key_path'];
         if (!$keyPath || !file_exists($keyPath) || !$cfg['apns_key_id'] || !$cfg['apns_team_id']) {
+            Logger::error('apns_misconfigured', [
+                'has_key' => $keyPath && file_exists($keyPath),
+                'has_kid' => !empty($cfg['apns_key_id']),
+                'has_tid' => !empty($cfg['apns_team_id']),
+            ]);
             return false;
         }
         try {
             $jwt = $this->apnsJwt($cfg['apns_key_id'], $cfg['apns_team_id'], $keyPath);
             if (!$jwt) return false;
-            $bundle = $cfg['apns_bundle_id'];
+            $bundle = (string)$cfg['apns_bundle_id'];
 
             $isCall = ($n['kind'] ?? '') === 'incoming_call';
             $extra  = json_decode($n['payload_json'] ?? 'null', true) ?: [];
@@ -154,7 +159,6 @@ final class PushService
             ];
             if ($isCall) {
                 $aps['interruption-level'] = 'time-sensitive';
-                // Push the alert through even if Focus is on.
                 $aps['relevance-score']    = 1.0;
             }
 
@@ -163,26 +167,67 @@ final class PushService
                 'data' => $extra + ['kind' => $n['kind']],
             ], JSON_UNESCAPED_UNICODE);
 
-            $url = 'https://api.push.apple.com/3/device/' . rawurlencode($tok['token']);
-            $ch  = curl_init($url);
-            curl_setopt_array($ch, [
-                CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_2_0,
-                CURLOPT_HTTPHEADER => [
-                    'authorization: bearer ' . $jwt,
-                    'apns-topic: ' . $bundle,
-                    'apns-push-type: alert',
-                    'apns-priority: ' . ($isCall ? '10' : '5'),
-                    'content-type: application/json',
-                ],
-                CURLOPT_POST => true,
-                CURLOPT_POSTFIELDS => $payload,
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_TIMEOUT => 10,
-            ]);
-            curl_exec($ch);
-            $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            curl_close($ch);
-            return $code >= 200 && $code < 300;
+            // TestFlight + dev-client builds register against APNs sandbox;
+            // production builds use the production gateway. We don't know
+            // which environment a device registered in, so try production
+            // first and fall back to sandbox on BadDeviceToken (400).
+            $forceSandbox = filter_var($cfg['apns_sandbox'] ?? false, FILTER_VALIDATE_BOOLEAN);
+            $hosts = $forceSandbox
+                ? ['https://api.sandbox.push.apple.com']
+                : ['https://api.push.apple.com', 'https://api.sandbox.push.apple.com'];
+
+            foreach ($hosts as $i => $host) {
+                $url = $host . '/3/device/' . rawurlencode($tok['token']);
+                $ch  = curl_init($url);
+                $respHeaders = [];
+                curl_setopt_array($ch, [
+                    CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_2_0,
+                    CURLOPT_HTTPHEADER => [
+                        'authorization: bearer ' . $jwt,
+                        'apns-topic: ' . $bundle,
+                        'apns-push-type: alert',
+                        'apns-priority: ' . ($isCall ? '10' : '5'),
+                        'content-type: application/json',
+                    ],
+                    CURLOPT_POST => true,
+                    CURLOPT_POSTFIELDS => $payload,
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_TIMEOUT => 10,
+                    CURLOPT_HEADERFUNCTION => function ($_c, $h) use (&$respHeaders) {
+                        $respHeaders[] = $h; return strlen($h);
+                    },
+                ]);
+                $body = (string)curl_exec($ch);
+                $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                $err  = curl_error($ch);
+                curl_close($ch);
+
+                if ($code >= 200 && $code < 300) {
+                    return true;
+                }
+
+                $reason = '';
+                if ($body !== '') {
+                    $j = json_decode($body, true);
+                    $reason = is_array($j) ? (string)($j['reason'] ?? '') : '';
+                }
+                Logger::error('apns_send_failed', [
+                    'host'    => $host,
+                    'http'    => $code,
+                    'reason'  => $reason,
+                    'curl'    => $err,
+                    'bundle'  => $bundle,
+                    'payload_kind' => $n['kind'] ?? null,
+                ]);
+
+                // Keep going only if the failure looks like a wrong-env token.
+                $envMismatch = ($code === 400 && $reason === 'BadDeviceToken')
+                    || ($code === 410 && $reason === 'Unregistered');
+                if (!$envMismatch || $i === count($hosts) - 1) {
+                    return false;
+                }
+            }
+            return false;
         } catch (\Throwable $e) {
             Logger::error('apns_error', ['msg' => $e->getMessage()]);
             return false;

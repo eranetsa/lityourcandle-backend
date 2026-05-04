@@ -49,6 +49,10 @@ return [
         'apns_team_id'   => $_ENV['APNS_TEAM_ID'] ?? '',
         'apns_bundle_id' => $_ENV['APNS_BUNDLE_ID'] ?? '',
         'apns_key_path'  => $_ENV['APNS_KEY_PATH'] ?? '',
+        // When true the APNs request goes straight to the sandbox gateway
+        // (TestFlight + Xcode dev builds). Default false: try production
+        // first and fall back to sandbox automatically on BadDeviceToken.
+        'apns_sandbox'   => $_ENV['APNS_USE_SANDBOX'] ?? false,
     ],
     'rate_limit' => [
         'per_minute' => (int)($_ENV['RATE_LIMIT_PER_MIN'] ?? 120),
