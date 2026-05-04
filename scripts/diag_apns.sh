@@ -9,7 +9,7 @@ set -uo pipefail
 
 APP_DIR="${APP_DIR:-/var/www/lityourcandle}"
 ENV_FILE="$APP_DIR/.env"
-LOG_FILE="${LOG_FILE:-/var/log/lityourcandle/app.log}"
+LOG_FILE="${LOG_FILE:-$APP_DIR/storage/logs/app-$(date +%F).log}"
 
 green=$'\033[0;32m'; red=$'\033[0;31m'; yellow=$'\033[0;33m'; reset=$'\033[0m'
 ok()   { echo "${green}✅ $*${reset}"; }
