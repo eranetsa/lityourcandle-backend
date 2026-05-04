@@ -130,6 +130,17 @@ final class CallController
         $invite = $this->loadInviteForReceiver($req);
         $this->markResponded($invite, 'accepted');
 
+        // Accepting a call is the de-facto "session start" for voice/video,
+        // so flip the session to in_progress if it isn't already. Without
+        // this the client lands on WaitingRoom even after answering.
+        DB::run(
+            "UPDATE sessions
+                SET status = 'in_progress',
+                    started_at = COALESCE(started_at, NOW())
+              WHERE id = :id AND status IN ('confirmed','pending','in_progress')",
+            [':id' => (int)$invite['session_id']]
+        );
+
         WsBridge::pushToUser((int)$invite['from_user_id'], [
             'type'       => 'call.accepted',
             'invite_id'  => (int)$invite['id'],
