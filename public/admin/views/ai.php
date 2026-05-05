@@ -30,6 +30,30 @@
 </div>
 
 <div class="card">
+  <h3>ذاكرة الحوار مع AI</h3>
+  <p style="color:var(--text-muted); margin:0 0 12px;">
+    عدد آخر دورات (تورّن) من حوار المستخدم التي تُرسل لـ Claude مع كل
+    طلب جديد ليُحافظ على السياق. كل دورة = رسالة المستخدم + رد شمعة.
+    قيمة عالية = ذاكرة أطول لكن استهلاك tokens أكبر.
+  </p>
+  <form method="post" action="?action=ai" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+    <input type="hidden" name="csrf" value="<?= htmlspecialchars(csrf()) ?>">
+    <label style="color:var(--text-muted); font-size:13px;">آخر … دورة:</label>
+    <input
+      type="number"
+      name="ai_memory_turns"
+      min="0" max="50"
+      value="<?= (int)($aiMemoryTurns ?? 10) ?>"
+      style="width:120px; text-align:center; font-size:16px; font-weight:700;"
+    >
+    <button type="submit" name="op" value="save_memory_turns" class="btn">حفظ</button>
+    <span style="color:var(--text-muted); font-size:12px;">
+      (الافتراضي ١٠ — اضبط على ٠ لتعطيل الذاكرة وكل طلب يبدأ من الصفر)
+    </span>
+  </form>
+</div>
+
+<div class="card">
   <h3>الحد اليومي المجاني لمحادثة AI</h3>
   <p style="color:var(--text-muted); margin:0 0 12px;">
     عدد الرسائل التي يستطيع المستخدم في الباقة المجانية إرسالها خلال

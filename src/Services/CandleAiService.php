@@ -17,7 +17,14 @@ const CANDLE_AI_PROMPT_KEY = 'candle_ai_prompt';
  */
 final class CandleAiService
 {
-    public function generate(string $userMessage, ?string $mood, array $recentMoods): array
+    /**
+     * @param array<int,array{user_message:string,response_json:string}> $history
+     *        Previous turns in chronological order (oldest → newest). Each
+     *        turn becomes a (user, assistant) pair in the messages array
+     *        sent to Claude, giving the model conversation memory at the
+     *        user level. Pass empty array for a one-shot call.
+     */
+    public function generate(string $userMessage, ?string $mood, array $recentMoods, array $history = []): array
     {
         $key   = (string)App::config('ai.anthropic_key');
         $model = (string)App::config('ai.anthropic_model');
@@ -37,6 +44,19 @@ final class CandleAiService
         $system = $this->systemPrompt();
         $userInput = $this->buildUserInput($userMessage, $mood, $recentMoods);
 
+        // Build the messages array from prior turns + the new user input.
+        // Anthropic expects strict alternation, which our (user, assistant)
+        // pairs produce naturally.
+        $messages = [];
+        foreach ($history as $turn) {
+            $um = trim((string)($turn['user_message'] ?? ''));
+            $am = trim((string)($turn['response_json'] ?? ''));
+            if ($um === '' || $am === '') continue;
+            $messages[] = ['role' => 'user',      'content' => $um];
+            $messages[] = ['role' => 'assistant', 'content' => $am];
+        }
+        $messages[] = ['role' => 'user', 'content' => $userInput];
+
         try {
             $client = new Client(['timeout' => 20]);
             $r = $client->post('https://api.anthropic.com/v1/messages', [
@@ -49,7 +69,7 @@ final class CandleAiService
                     'model'      => $model,
                     'max_tokens' => 600,
                     'system'     => $system,
-                    'messages'   => [['role' => 'user', 'content' => $userInput]],
+                    'messages'   => $messages,
                 ],
             ]);
             $resp = json_decode((string)$r->getBody(), true) ?: [];

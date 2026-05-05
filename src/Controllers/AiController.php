@@ -48,7 +48,30 @@ final class AiController
         );
         $recentMoods = array_column($recent, 'mood');
 
-        $result = (new CandleAiService())->generate($data['message'], $data['mood'] ?? null, $recentMoods);
+        // Conversation memory: pull this user's most recent N AI turns so
+        // Claude can refer back to what was said earlier in the chat.
+        // Admin-tunable via Settings; default 10 turns (~20 messages).
+        $memTurns = max(0, (int)(Settings::get('ai_memory_turns', '10') ?? 10));
+        $history = [];
+        if ($memTurns > 0) {
+            $rows = DB::all(
+                'SELECT user_message, response_json
+                   FROM ai_logs
+                  WHERE user_id = :uid
+                  ORDER BY id DESC
+                  LIMIT ' . $memTurns,
+                [':uid' => $uid]
+            );
+            // DESC → reverse to chronological for the API.
+            $history = array_reverse($rows);
+        }
+
+        $result = (new CandleAiService())->generate(
+            $data['message'],
+            $data['mood'] ?? null,
+            $recentMoods,
+            $history
+        );
         $payload = $result['data'];
 
         $logId = DB::insert('ai_logs', [

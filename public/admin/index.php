@@ -471,9 +471,14 @@ function ai_analytics(): void
             $n = max(0, (int)($_POST['ai_free_daily_limit'] ?? 0));
             Settings::set('ai_free_daily_limit', (string)$n);
             $saved = true;
+        } elseif ($op === 'save_memory_turns') {
+            $n = max(0, min(50, (int)($_POST['ai_memory_turns'] ?? 10)));
+            Settings::set('ai_memory_turns', (string)$n);
+            $saved = true;
         }
     }
-    $aiFreeLimit = (int)(Settings::get('ai_free_daily_limit', '3') ?? 3);
+    $aiFreeLimit  = (int)(Settings::get('ai_free_daily_limit', '3')  ?? 3);
+    $aiMemoryTurns = (int)(Settings::get('ai_memory_turns',    '10') ?? 10);
 
     $stats = DB::one(
         "SELECT COUNT(*) AS total,
@@ -506,6 +511,7 @@ function ai_analytics(): void
         'saved'         => $saved,
         'aiCfg'         => $aiCfg,
         'aiFreeLimit'   => $aiFreeLimit,
+        'aiMemoryTurns' => $aiMemoryTurns,
     ]);
 }
 
