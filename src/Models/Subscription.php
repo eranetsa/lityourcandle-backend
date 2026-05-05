@@ -63,6 +63,11 @@ final class Subscription
         // /admin → الباقات. Falls back to config/config.php defaults.
         $cfg = App::config('plans');
         switch ($plan) {
+            case 'weekly': {
+                $admin = Settings::get('plan_weekly_sessions');
+                if ($admin !== null && $admin !== '') return max(0, (int)$admin);
+                return (int)($cfg['weekly']['sessions'] ?? 0);
+            }
             case 'monthly': {
                 $admin = Settings::get('plan_monthly_sessions');
                 if ($admin !== null && $admin !== '') return max(0, (int)$admin);
@@ -78,5 +83,28 @@ final class Subscription
             default:
                 return 0;
         }
+    }
+
+    /**
+     * Free users don't have a subscription row to draw credits from, so we
+     * count the sessions they've already booked this calendar month with
+     * paid_with='free' and compare to the admin-configured cap.
+     */
+    public static function freeMonthlyRemaining(int $userId): int
+    {
+        $cap = (int)(Settings::get('plan_free_sessions_per_month', '0') ?? 0);
+        if ($cap <= 0) return 0;
+        $row = DB::one(
+            "SELECT COUNT(*) AS n
+               FROM sessions
+              WHERE user_id = :uid
+                AND paid_with = 'free'
+                AND status NOT IN ('canceled','no_show')
+                AND YEAR(created_at)  = YEAR(CURDATE())
+                AND MONTH(created_at) = MONTH(CURDATE())",
+            [':uid' => $userId]
+        );
+        $used = (int)($row['n'] ?? 0);
+        return max(0, $cap - $used);
     }
 }

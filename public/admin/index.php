@@ -395,17 +395,24 @@ function subscriptions_index(): void
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         if (($_POST['op'] ?? '') === 'save_plan_limits') {
+            $free    = max(0, (int)($_POST['plan_free_sessions_per_month'] ?? 0));
+            $weekly  = max(0, (int)($_POST['plan_weekly_sessions'] ?? 0));
             $monthly = max(0, (int)($_POST['plan_monthly_sessions'] ?? 0));
             $yearly  = max(0, (int)($_POST['plan_yearly_sessions_per_month'] ?? 0));
-            Settings::set('plan_monthly_sessions', (string)$monthly);
-            Settings::set('plan_yearly_sessions_per_month', (string)$yearly);
+            Settings::set('plan_free_sessions_per_month', (string)$free);
+            Settings::set('plan_weekly_sessions',         (string)$weekly);
+            Settings::set('plan_monthly_sessions',        (string)$monthly);
+            Settings::set('plan_yearly_sessions_per_month',(string)$yearly);
             $saved = true;
         }
     }
     // Read current overrides (or fall back to config defaults so the form is
     // always populated with the *effective* numbers).
     $cfg = \App\Core\App::config('plans');
-    $planMonthly = (int)(Settings::get('plan_monthly_sessions',
+    $planFreePerMonth   = (int)(Settings::get('plan_free_sessions_per_month',   '0') ?? 0);
+    $planWeekly         = (int)(Settings::get('plan_weekly_sessions',
+        (string)($cfg['weekly']['sessions'] ?? 0)) ?? 0);
+    $planMonthly        = (int)(Settings::get('plan_monthly_sessions',
         (string)($cfg['monthly']['sessions'] ?? 1)) ?? 1);
     $planYearlyPerMonth = (int)(Settings::get('plan_yearly_sessions_per_month',
         (string)($cfg['yearly']['sessions_per_month'] ?? 2)) ?? 2);
@@ -418,8 +425,11 @@ function subscriptions_index(): void
     render('subscriptions', [
         'rows'                => $rows,
         'saved'               => $saved,
+        'planFreePerMonth'    => $planFreePerMonth,
+        'planWeekly'          => $planWeekly,
         'planMonthly'         => $planMonthly,
         'planYearlyPerMonth'  => $planYearlyPerMonth,
+        'cfgWeekly'           => (int)($cfg['weekly']['sessions'] ?? 0),
         'cfgMonthly'          => (int)($cfg['monthly']['sessions'] ?? 1),
         'cfgYearlyPerMonth'   => (int)($cfg['yearly']['sessions_per_month'] ?? 2),
     ]);

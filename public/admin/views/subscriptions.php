@@ -13,10 +13,32 @@
   <?php endif; ?>
   <form method="post" action="?action=subscriptions">
     <input type="hidden" name="csrf" value="<?= htmlspecialchars(csrf()) ?>">
-    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:16px;">
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:16px;">
       <div>
         <label style="display:block; color:var(--text-muted); font-size:13px; margin-bottom:6px;">
-          الباقة الشهرية — جلسات / شهر
+          الباقة المجانية — جلسات / شهر
+        </label>
+        <input
+          type="number" name="plan_free_sessions_per_month" min="0"
+          value="<?= (int)($planFreePerMonth ?? 0) ?>"
+          style="width:100%; font-size:18px; font-weight:700; text-align:center;"
+        >
+        <small style="color:var(--text-muted);">٠ = لا يستطيع الحساب المجاني الحجز</small>
+      </div>
+      <div>
+        <label style="display:block; color:var(--text-muted); font-size:13px; margin-bottom:6px;">
+          الباقة الأسبوعية — جلسات / اشتراك
+        </label>
+        <input
+          type="number" name="plan_weekly_sessions" min="0"
+          value="<?= (int)($planWeekly ?? 0) ?>"
+          style="width:100%; font-size:18px; font-weight:700; text-align:center;"
+        >
+        <small style="color:var(--text-muted);">الافتراضي في config: <?= (int)($cfgWeekly ?? 0) ?></small>
+      </div>
+      <div>
+        <label style="display:block; color:var(--text-muted); font-size:13px; margin-bottom:6px;">
+          الباقة الشهرية — جلسات / اشتراك
         </label>
         <input
           type="number" name="plan_monthly_sessions" min="0"
@@ -27,7 +49,7 @@
       </div>
       <div>
         <label style="display:block; color:var(--text-muted); font-size:13px; margin-bottom:6px;">
-          الباقة السنوية — جلسات / شهر (يُضرب ×١٢)
+          الباقة السنوية — جلسات / شهر (×١٢)
         </label>
         <input
           type="number" name="plan_yearly_sessions_per_month" min="0"
@@ -36,13 +58,20 @@
         >
         <small style="color:var(--text-muted);">
           الإجمالي السنوي: <strong><?= (int)($planYearlyPerMonth ?? 2) * 12 ?></strong> جلسة
-          · الافتراضي في config: <?= (int)($cfgYearlyPerMonth ?? 2) ?>
+          · الافتراضي: <?= (int)($cfgYearlyPerMonth ?? 2) ?>
         </small>
       </div>
     </div>
     <div style="margin-top:14px;">
       <button type="submit" name="op" value="save_plan_limits" class="btn">حفظ الإعدادات</button>
     </div>
+    <p style="color:var(--text-muted); font-size:12px; margin-top:14px; line-height:1.7;">
+      • <strong>المجانية</strong> تُحتسب شهريًا حسب التقويم على جلسات تحمل
+      <code>paid_with='free'</code> (لا يحتاج اشتراكًا).<br>
+      • <strong>الأسبوعية / الشهرية / السنوية</strong> تُمنح كرصيد ثابت في
+      <code>sessions_total</code> عند تفعيل الاشتراك. تعديل القيمة يطبّق
+      على التفعيلات الجديدة فقط — الرصيد الحالي للمشتركين الحاليين لا يتغيّر.
+    </p>
   </form>
 </div>
 

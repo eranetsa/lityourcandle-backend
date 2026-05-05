@@ -67,10 +67,20 @@ final class BookingController
                 Response::error('no_session_credits', 402, ['needs_purchase' => true]);
             }
         } else {
-            if (!Subscription::isPaidPlan($sub)) {
-                Response::error('subscription_required', 402);
-            }
-            if ((int)$sub['sessions_remaining'] < 1) {
+            $isPaid = Subscription::isPaidPlan($sub);
+            if (!$isPaid) {
+                // Free / trial user: check the admin-configured monthly free
+                // session cap (Settings → plan_free_sessions_per_month). Each
+                // booking is counted with paid_with='free' so the cap is
+                // enforced naturally on the next attempt.
+                $remaining = Subscription::freeMonthlyRemaining($uid);
+                if ($remaining <= 0) {
+                    Response::error('subscription_required', 402, [
+                        'free_monthly_used_up' => true,
+                    ]);
+                }
+                $paidWith = 'free';
+            } elseif ((int)$sub['sessions_remaining'] < 1) {
                 Response::error('no_session_credits', 402, ['needs_extra' => true]);
             }
         }
