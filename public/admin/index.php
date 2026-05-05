@@ -89,6 +89,9 @@ switch ($action) {
     case 'transactions':  transactions_index(); break;
     case 'mood':          mood_analytics(); break;
     case 'ai':            ai_analytics(); break;
+    case 'ai_users':      ai_users(); break;
+    case 'ai_user':       ai_user(); break;
+    case 'ai_session':    ai_session(); break;
     case 'daily':         daily_messages(); break;
     case 'programs':      programs_index(); break;
     default: http_response_code(404); echo 'Not found';
@@ -449,6 +452,94 @@ function ai_analytics(): void
         'defaultPrompt' => $defaultPrompt,
         'saved'         => $saved,
     ]);
+}
+
+/**
+ * Level 1 — every user who has ever talked to شمعة AI, ordered by most
+ * recent activity. We also surface conversation counts and an at-a-glance
+ * snippet of the latest user message so admins can scan for a specific
+ * person quickly.
+ */
+function ai_users(): void
+{
+    $q = trim((string)($_GET['q'] ?? ''));
+    $params = [];
+    $where = '';
+    if ($q !== '') {
+        $where = 'AND (u.name LIKE :q OR u.email LIKE :q)';
+        $params[':q'] = "%$q%";
+    }
+    $rows = DB::all(
+        "SELECT u.id, u.name, u.email, u.role,
+                COUNT(a.id) AS msgs,
+                COUNT(DISTINCT DATE(a.created_at)) AS days,
+                SUM(a.escalated) AS escalated,
+                MAX(a.created_at) AS last_at,
+                SUBSTRING_INDEX(GROUP_CONCAT(a.user_message ORDER BY a.id DESC SEPARATOR '\n---\n'), '\n---\n', 1) AS last_msg
+           FROM ai_logs a
+           JOIN users u ON u.id = a.user_id
+          WHERE 1=1 $where
+          GROUP BY u.id, u.name, u.email, u.role
+          ORDER BY MAX(a.id) DESC
+          LIMIT 200",
+        $params
+    );
+    render('ai_users', ['rows' => $rows, 'q' => $q]);
+}
+
+/**
+ * Level 2 — for one user, show their AI activity grouped by calendar
+ * day. Each "session" is one date; clicking opens the full transcript.
+ */
+function ai_user(): void
+{
+    $uid = (int)($_GET['id'] ?? 0);
+    if ($uid <= 0) { http_response_code(400); exit('bad id'); }
+    $user = DB::one('SELECT id, name, email, role FROM users WHERE id = :id', [':id' => $uid]);
+    if (!$user) { http_response_code(404); exit('user not found'); }
+
+    $days = DB::all(
+        "SELECT DATE(created_at) AS d,
+                COUNT(*)         AS msgs,
+                SUM(escalated)   AS escalated,
+                MIN(created_at)  AS started_at,
+                MAX(created_at)  AS ended_at,
+                SUBSTRING_INDEX(GROUP_CONCAT(user_message ORDER BY id ASC SEPARATOR '\n---\n'), '\n---\n', 1) AS opener
+           FROM ai_logs
+          WHERE user_id = :uid
+          GROUP BY DATE(created_at)
+          ORDER BY DATE(created_at) DESC
+          LIMIT 60",
+        [':uid' => $uid]
+    );
+    render('ai_user', ['user' => $user, 'days' => $days]);
+}
+
+/**
+ * Level 3 — the full back-and-forth between this user and شمعة on a
+ * single calendar day. Renders the user's message and the structured
+ * AI response (empathy / reflection / suggestion / exercise / dua) so
+ * admins can audit the actual content delivered.
+ */
+function ai_session(): void
+{
+    $uid  = (int)($_GET['id'] ?? 0);
+    $date = trim((string)($_GET['date'] ?? ''));
+    if ($uid <= 0 || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+        http_response_code(400); exit('bad params');
+    }
+    $user = DB::one('SELECT id, name, email, role FROM users WHERE id = :id', [':id' => $uid]);
+    if (!$user) { http_response_code(404); exit('user not found'); }
+
+    $turns = DB::all(
+        "SELECT id, mood, user_message, response_json, escalated,
+                tokens_in, tokens_out, created_at
+           FROM ai_logs
+          WHERE user_id = :uid AND DATE(created_at) = :d
+          ORDER BY id ASC",
+        [':uid' => $uid, ':d' => $date]
+    );
+    render('ai_session', ['user' => $user, 'date' => $date, 'turns' => $turns]);
 }
 
 function daily_messages(): void

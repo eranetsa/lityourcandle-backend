@@ -1,6 +1,9 @@
 <div class="card">
-  <h2>شمعة AI — الاستخدام</h2>
-  <div class="stats" style="grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));">
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+    <h2 style="margin:0;">شمعة AI — الاستخدام</h2>
+    <a href="?action=ai_users" class="btn">تصفّح محادثات المستخدمين ←</a>
+  </div>
+  <div class="stats" style="grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); margin-top:14px;">
     <div class="stat"><div class="n"><?= number_format((int)($stats['total'] ?? 0)) ?></div><div class="l">إجمالي المحادثات</div></div>
     <div class="stat"><div class="n"><?= number_format((int)($stats['today'] ?? 0)) ?></div><div class="l">اليوم</div></div>
     <div class="stat"><div class="n"><?= number_format((int)($stats['escalated'] ?? 0)) ?></div><div class="l">تصعيد لمستشار</div></div>
