@@ -23,6 +23,14 @@ final class CandleAiService
         $model = (string)App::config('ai.anthropic_model');
 
         if ($key === '' || App::config('ai.provider') !== 'anthropic') {
+            // Surface the silent-fallback path so it shows up in /var/log
+            // and stops looking like "Claude is just unfailingly repeating
+            // itself" in production. Without this the fallback template
+            // looks identical to a real (but very flat) AI reply.
+            Logger::warn('candle_ai_fallback_no_key', [
+                'has_key'  => $key !== '',
+                'provider' => (string)App::config('ai.provider'),
+            ]);
             return $this->fallback($mood, $recentMoods);
         }
 

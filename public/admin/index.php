@@ -445,12 +445,25 @@ function ai_analytics(): void
     $latest = DB::all('SELECT * FROM ai_logs ORDER BY id DESC LIMIT 50');
     $currentPrompt = Settings::get('candle_ai_prompt', '');
     $defaultPrompt = CandleAiService::defaultSystemPrompt();
+
+    // AI provider readiness — when this is "ready=false" every reply is
+    // the static fallback regardless of the prompt above, which is what
+    // surfaced as "AI keeps repeating itself" in production.
+    $aiKey = (string)\App\Core\App::config('ai.anthropic_key');
+    $aiCfg = [
+        'provider' => (string)\App\Core\App::config('ai.provider'),
+        'model'    => (string)\App\Core\App::config('ai.anthropic_model'),
+        'has_key'  => $aiKey !== '',
+        'ready'    => $aiKey !== '' && \App\Core\App::config('ai.provider') === 'anthropic',
+    ];
+
     render('ai', [
         'stats'         => $stats,
         'latest'        => $latest,
         'currentPrompt' => $currentPrompt,
         'defaultPrompt' => $defaultPrompt,
         'saved'         => $saved,
+        'aiCfg'         => $aiCfg,
     ]);
 }
 

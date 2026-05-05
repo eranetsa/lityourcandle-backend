@@ -3,6 +3,23 @@
     <h2 style="margin:0;">شمعة AI — الاستخدام</h2>
     <a href="?action=ai_users" class="btn">تصفّح محادثات المستخدمين ←</a>
   </div>
+  <?php if (isset($aiCfg)): ?>
+    <?php if ($aiCfg['ready']): ?>
+      <div style="margin-top:14px; padding:12px 14px; border-radius:10px; background:rgba(34,197,94,0.10); border:1px solid rgba(34,197,94,0.35); color:#0a8a3a;">
+        ✅ خدمة Claude متصلة. النموذج: <code><?= htmlspecialchars($aiCfg['model'] ?: '—') ?></code>
+      </div>
+    <?php else: ?>
+      <div style="margin-top:14px; padding:14px; border-radius:10px; background:rgba(239,68,68,0.10); border:1px solid rgba(239,68,68,0.35); color:#b91c1c;">
+        ⚠ <strong>AI يعمل في وضع الـ fallback</strong> — يرجع نفس النص الثابت لكل المستخدمين بدون استدعاء Claude.
+        <div style="margin-top:8px; font-size:13px; color:#7f1d1d;">
+          سبب: <?= !$aiCfg['has_key']
+            ? 'متغيّر <code>ANTHROPIC_API_KEY</code> فارغ في <code>/var/www/lityourcandle/.env</code>'
+            : ('<code>AI_PROVIDER</code> ≠ <code>anthropic</code> (القيمة الحالية: <code>' . htmlspecialchars($aiCfg['provider']) . '</code>)') ?>.
+          عدِّل <code>.env</code> ثم نفّذ <code>systemctl reload apache2</code>.
+        </div>
+      </div>
+    <?php endif; ?>
+  <?php endif; ?>
   <div class="stats" style="grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); margin-top:14px;">
     <div class="stat"><div class="n"><?= number_format((int)($stats['total'] ?? 0)) ?></div><div class="l">إجمالي المحادثات</div></div>
     <div class="stat"><div class="n"><?= number_format((int)($stats['today'] ?? 0)) ?></div><div class="l">اليوم</div></div>
