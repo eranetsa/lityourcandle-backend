@@ -7,6 +7,7 @@ use App\Core\Auth;
 use App\Core\DB;
 use App\Core\Request;
 use App\Core\Response;
+use App\Core\Settings;
 use App\Core\Validator;
 
 final class UserController
@@ -23,7 +24,20 @@ final class UserController
              FROM subscriptions WHERE user_id = :uid ORDER BY id DESC LIMIT 1',
             [':uid' => $uid]
         );
-        Response::json(['user' => $user, 'subscription' => $sub]);
+
+        // Surface admin-tunable limits to the client so UI strings (e.g.
+        // "remaining today: 4/N") and gating logic match the backend
+        // exactly. Without this the app uses a hard-coded N=5 even after
+        // an admin changes /admin → AI free daily limit.
+        $limits = [
+            'ai_free_daily_limit' => (int)(Settings::get('ai_free_daily_limit', '3') ?? 3),
+        ];
+
+        Response::json([
+            'user'         => $user,
+            'subscription' => $sub,
+            'limits'       => $limits,
+        ]);
     }
 
     public function update(Request $req): void
