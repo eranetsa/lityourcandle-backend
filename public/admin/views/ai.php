@@ -30,6 +30,30 @@
 </div>
 
 <div class="card">
+  <h3>الحد اليومي المجاني لمحادثة AI</h3>
+  <p style="color:var(--text-muted); margin:0 0 12px;">
+    عدد الرسائل التي يستطيع المستخدم في الباقة المجانية إرسالها خلال
+    اليوم لـ شمعة AI. عند تجاوزه يظهر للمستخدم زرّ الترقية. مشتركو
+    الباقات المدفوعة (أسبوعية / شهرية / سنوية) و الـ trial غير محدودين.
+  </p>
+  <form method="post" action="?action=ai" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+    <input type="hidden" name="csrf" value="<?= htmlspecialchars(csrf()) ?>">
+    <label style="color:var(--text-muted); font-size:13px;">رسائل / يوم:</label>
+    <input
+      type="number"
+      name="ai_free_daily_limit"
+      min="0"
+      value="<?= (int)($aiFreeLimit ?? 3) ?>"
+      style="width:120px; text-align:center; font-size:16px; font-weight:700;"
+    >
+    <button type="submit" name="op" value="save_free_limit" class="btn">حفظ الحد</button>
+    <span style="color:var(--text-muted); font-size:12px;">
+      (الافتراضي ٣ — اضبط على ٠ لتعطيل AI تمامًا للباقة المجانية)
+    </span>
+  </form>
+</div>
+
+<div class="card">
   <h3>برومبت شمعة AI (System Prompt)</h3>
   <p style="color:var(--text-muted); margin:0 0 12px;">
     النص الذي يُرسل لـ Claude كـ <code>system</code> في كل طلب AI داخل التطبيق.

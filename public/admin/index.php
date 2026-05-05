@@ -391,12 +391,38 @@ function sessions_index(): void
 
 function subscriptions_index(): void
 {
+    $saved = false;
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        csrf_check();
+        if (($_POST['op'] ?? '') === 'save_plan_limits') {
+            $monthly = max(0, (int)($_POST['plan_monthly_sessions'] ?? 0));
+            $yearly  = max(0, (int)($_POST['plan_yearly_sessions_per_month'] ?? 0));
+            Settings::set('plan_monthly_sessions', (string)$monthly);
+            Settings::set('plan_yearly_sessions_per_month', (string)$yearly);
+            $saved = true;
+        }
+    }
+    // Read current overrides (or fall back to config defaults so the form is
+    // always populated with the *effective* numbers).
+    $cfg = \App\Core\App::config('plans');
+    $planMonthly = (int)(Settings::get('plan_monthly_sessions',
+        (string)($cfg['monthly']['sessions'] ?? 1)) ?? 1);
+    $planYearlyPerMonth = (int)(Settings::get('plan_yearly_sessions_per_month',
+        (string)($cfg['yearly']['sessions_per_month'] ?? 2)) ?? 2);
+
     $rows = DB::all(
         "SELECT s.*, u.name AS user_name, u.email
          FROM subscriptions s JOIN users u ON u.id = s.user_id
          ORDER BY s.id DESC LIMIT 200"
     );
-    render('subscriptions', ['rows' => $rows]);
+    render('subscriptions', [
+        'rows'                => $rows,
+        'saved'               => $saved,
+        'planMonthly'         => $planMonthly,
+        'planYearlyPerMonth'  => $planYearlyPerMonth,
+        'cfgMonthly'          => (int)($cfg['monthly']['sessions'] ?? 1),
+        'cfgYearlyPerMonth'   => (int)($cfg['yearly']['sessions_per_month'] ?? 2),
+    ]);
 }
 
 function transactions_index(): void
@@ -431,8 +457,13 @@ function ai_analytics(): void
         } elseif ($op === 'reset_prompt') {
             Settings::set('candle_ai_prompt', '');
             $saved = true;
+        } elseif ($op === 'save_free_limit') {
+            $n = max(0, (int)($_POST['ai_free_daily_limit'] ?? 0));
+            Settings::set('ai_free_daily_limit', (string)$n);
+            $saved = true;
         }
     }
+    $aiFreeLimit = (int)(Settings::get('ai_free_daily_limit', '3') ?? 3);
 
     $stats = DB::one(
         "SELECT COUNT(*) AS total,
@@ -464,6 +495,7 @@ function ai_analytics(): void
         'defaultPrompt' => $defaultPrompt,
         'saved'         => $saved,
         'aiCfg'         => $aiCfg,
+        'aiFreeLimit'   => $aiFreeLimit,
     ]);
 }
 

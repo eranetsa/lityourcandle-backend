@@ -7,13 +7,14 @@ use App\Core\App;
 use App\Core\DB;
 use App\Core\Request;
 use App\Core\Response;
+use App\Core\Settings;
 use App\Core\Validator;
 use App\Models\Subscription;
 use App\Services\CandleAiService;
 
 final class AiController
 {
-    private const FREE_DAILY_AI_LIMIT = 3;
+    private const FREE_DAILY_AI_LIMIT_DEFAULT = 3;
 
     public function candle(Request $req): void
     {
@@ -26,14 +27,16 @@ final class AiController
         $sub = Subscription::current($uid);
 
         if (!Subscription::isPaidPlan($sub) && ($sub['status'] ?? '') !== 'trial') {
+            $limit = (int)(Settings::get('ai_free_daily_limit', (string)self::FREE_DAILY_AI_LIMIT_DEFAULT) ?? self::FREE_DAILY_AI_LIMIT_DEFAULT);
+            if ($limit < 0) $limit = 0;
             $today = DB::one(
                 'SELECT COUNT(*) AS n FROM ai_logs WHERE user_id = :uid AND DATE(created_at) = CURDATE()',
                 [':uid' => $uid]
             );
-            if ((int)$today['n'] >= self::FREE_DAILY_AI_LIMIT) {
+            if ((int)$today['n'] >= $limit) {
                 Response::error('ai_daily_limit_reached', 402, [
                     'show_upgrade'   => true,
-                    'limit_per_day'  => self::FREE_DAILY_AI_LIMIT,
+                    'limit_per_day'  => $limit,
                     'message_ar'     => 'لقد استخدمت محادثاتك المجانية اليوم. اشترك للاستمرار مع شمعة بلا حدود.',
                 ]);
             }

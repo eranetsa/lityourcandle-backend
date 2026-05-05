@@ -5,6 +5,7 @@ namespace App\Models;
 
 use App\Core\App;
 use App\Core\DB;
+use App\Core\Settings;
 
 final class Subscription
 {
@@ -58,11 +59,24 @@ final class Subscription
 
     public static function sessionsForPlan(string $plan): int
     {
+        // Admin can override the per-plan session count from
+        // /admin → الباقات. Falls back to config/config.php defaults.
         $cfg = App::config('plans');
-        return match ($plan) {
-            'monthly' => (int)($cfg['monthly']['sessions'] ?? 1),
-            'yearly'  => (int)(($cfg['yearly']['sessions_per_month'] ?? 2) * 12),
-            default   => 0,
-        };
+        switch ($plan) {
+            case 'monthly': {
+                $admin = Settings::get('plan_monthly_sessions');
+                if ($admin !== null && $admin !== '') return max(0, (int)$admin);
+                return (int)($cfg['monthly']['sessions'] ?? 1);
+            }
+            case 'yearly': {
+                $admin = Settings::get('plan_yearly_sessions_per_month');
+                $perMonth = ($admin !== null && $admin !== '')
+                    ? max(0, (int)$admin)
+                    : (int)($cfg['yearly']['sessions_per_month'] ?? 2);
+                return $perMonth * 12;
+            }
+            default:
+                return 0;
+        }
     }
 }
