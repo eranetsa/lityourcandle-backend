@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 use App\Core\App;
 use App\Core\DB;
+use App\Core\Settings;
+use App\Services\CandleAiService;
 
 require_once dirname(__DIR__, 2) . '/vendor/autoload.php';
 App::boot(dirname(__DIR__, 2));
@@ -416,6 +418,19 @@ function mood_analytics(): void
 
 function ai_analytics(): void
 {
+    $saved = false;
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        csrf_check();
+        $op = $_POST['op'] ?? '';
+        if ($op === 'save_prompt') {
+            Settings::set('candle_ai_prompt', (string)($_POST['prompt'] ?? ''));
+            $saved = true;
+        } elseif ($op === 'reset_prompt') {
+            Settings::set('candle_ai_prompt', '');
+            $saved = true;
+        }
+    }
+
     $stats = DB::one(
         "SELECT COUNT(*) AS total,
                 SUM(escalated) AS escalated,
@@ -425,7 +440,15 @@ function ai_analytics(): void
          FROM ai_logs"
     );
     $latest = DB::all('SELECT * FROM ai_logs ORDER BY id DESC LIMIT 50');
-    render('ai', ['stats' => $stats, 'latest' => $latest]);
+    $currentPrompt = Settings::get('candle_ai_prompt', '');
+    $defaultPrompt = CandleAiService::defaultSystemPrompt();
+    render('ai', [
+        'stats'         => $stats,
+        'latest'        => $latest,
+        'currentPrompt' => $currentPrompt,
+        'defaultPrompt' => $defaultPrompt,
+        'saved'         => $saved,
+    ]);
 }
 
 function daily_messages(): void

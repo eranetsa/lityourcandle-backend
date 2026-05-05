@@ -5,7 +5,10 @@ namespace App\Services;
 
 use App\Core\App;
 use App\Core\Logger;
+use App\Core\Settings;
 use GuzzleHttp\Client;
+
+const CANDLE_AI_PROMPT_KEY = 'candle_ai_prompt';
 
 /**
  * "شمعة" — calm, supportive Arabic companion.
@@ -59,7 +62,12 @@ final class CandleAiService
         }
     }
 
-    private function systemPrompt(): string
+    /**
+     * The system prompt admins can override from the admin panel
+     * (Settings → AI prompt). Falls back to the bundled default when no
+     * override is stored, so the service is functional out of the box.
+     */
+    public static function defaultSystemPrompt(): string
     {
         return <<<TXT
 أنت "شمعة"، رفيقة لطيفة وداعمة باللغة العربية في تطبيق "أشعل شمعتك".
@@ -84,6 +92,15 @@ final class CandleAiService
 }
 عيّني escalate = true إذا تضمّن الحديث: إيذاء نفس، انتحار، عنف، أعراض اكتئاب حادة، أو أزمة.
 TXT;
+    }
+
+    private function systemPrompt(): string
+    {
+        $override = Settings::get(CANDLE_AI_PROMPT_KEY);
+        if ($override !== null && trim($override) !== '') {
+            return $override;
+        }
+        return self::defaultSystemPrompt();
     }
 
     private function buildUserInput(string $msg, ?string $mood, array $recentMoods): string
