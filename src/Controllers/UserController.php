@@ -9,6 +9,7 @@ use App\Core\Request;
 use App\Core\Response;
 use App\Core\Settings;
 use App\Core\Validator;
+use App\Models\Subscription;
 
 final class UserController
 {
@@ -30,7 +31,9 @@ final class UserController
         // exactly. Without this the app uses a hard-coded N=5 even after
         // an admin changes /admin → AI free daily limit.
         $limits = [
-            'ai_free_daily_limit' => (int)(Settings::get('ai_free_daily_limit', '3') ?? 3),
+            'ai_free_daily_limit'             => (int)(Settings::get('ai_free_daily_limit', '3') ?? 3),
+            'plan_free_sessions_per_month'    => (int)(Settings::get('plan_free_sessions_per_month', '0') ?? 0),
+            'free_sessions_remaining_month'   => Subscription::freeMonthlyRemaining($uid),
         ];
 
         Response::json([
