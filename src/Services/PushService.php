@@ -252,13 +252,24 @@ final class PushService
 
     private static function derToJose(string $der): string
     {
-        // Minimal DER ECDSA -> raw 64-byte conversion
-        $offset = 4;
+        // ECDSA DER → raw r||s for ES256.
+        //
+        // DER layout: SEQUENCE { INTEGER r, INTEGER s } i.e.
+        //   30 [total-len] 02 [r-len] [r…] 02 [s-len] [s…]
+        // Start at the INTEGER tag for r (offset 2 for single-byte
+        // total-length; adjust upward when multi-byte). The previous
+        // version used offset 4 which over-shot into the r value and
+        // produced 96-byte garbage signatures that Apple rejected with
+        // InvalidProviderToken.
+        $offset = 2;
         if (ord($der[1]) > 0x80) $offset += ord($der[1]) - 0x80;
         $rLen = ord($der[$offset + 1]);
         $r = substr($der, $offset + 2, $rLen);
         $sLen = ord($der[$offset + 2 + $rLen + 1]);
         $s = substr($der, $offset + 2 + $rLen + 2, $sLen);
+        // DER encodes positive integers with a leading 0x00 byte when the
+        // high bit is set; JOSE expects fixed-width 32-byte halves, so
+        // strip any 0x00 padding and left-pad back to 32.
         $r = ltrim($r, "\x00");
         $s = ltrim($s, "\x00");
         return str_pad($r, 32, "\x00", STR_PAD_LEFT) . str_pad($s, 32, "\x00", STR_PAD_LEFT);
