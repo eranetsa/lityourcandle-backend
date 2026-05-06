@@ -8,6 +8,7 @@ use App\Core\Request;
 use App\Core\Response;
 use App\Core\Validator;
 use App\Services\AgoraTokenService;
+use App\Services\PushService;
 
 final class ChatController
 {
@@ -112,6 +113,49 @@ final class ChatController
                 ], JSON_UNESCAPED_UNICODE),
                 'status'       => 'queued',
             ]);
+        }
+
+        // Push the message to whichever party isn't the sender so they
+        // get a banner + sound when the chat screen isn't open. We
+        // dispatch inline (not via cron) because chat is real-time —
+        // a 60-second cron tick would feel broken.
+        if ($role === 'consultant') {
+            $recipientUserId = (int)$sess['user_id'];
+            $senderName = DB::one(
+                'SELECT name FROM consultants WHERE id = :cid',
+                [':cid' => (int)$sess['consultant_id']]
+            )['name'] ?? 'المستشار';
+        } else {
+            $cons = DB::one(
+                'SELECT user_id FROM consultants WHERE id = :cid',
+                [':cid' => (int)$sess['consultant_id']]
+            );
+            $recipientUserId = (int)($cons['user_id'] ?? 0);
+            $senderName = DB::one(
+                'SELECT name FROM users WHERE id = :uid',
+                [':uid' => $req->userId()]
+            )['name'] ?? 'العميل';
+        }
+
+        if ($recipientUserId > 0) {
+            $preview = mb_substr($data['body'], 0, 100);
+            if (mb_strlen($data['body']) > 100) {
+                $preview .= '…';
+            }
+            $notifId = DB::insert('notifications', [
+                'user_id'      => $recipientUserId,
+                'kind'         => 'chat_message',
+                'title'        => $senderName,
+                'body'         => $preview,
+                'payload_json' => json_encode([
+                    'type'        => 'chat_message',
+                    'session_id'  => (int)$sess['id'],
+                    'message_id'  => $msgId,
+                    'sender_role' => $role,
+                ], JSON_UNESCAPED_UNICODE),
+                'status'       => 'queued',
+            ]);
+            try { (new PushService())->send($notifId); } catch (\Throwable $e) { /* push best-effort */ }
         }
 
         Response::json(['message_id' => $msgId, 'created_at' => date('c')], 201);
