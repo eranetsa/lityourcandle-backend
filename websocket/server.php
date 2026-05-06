@@ -39,6 +39,7 @@ require_once dirname(__DIR__) . '/vendor/autoload.php';
 use App\Core\App;
 use App\Core\Auth;
 use App\Core\DB;
+use App\Services\PushService;
 use Ratchet\ConnectionInterface;
 use Ratchet\Http\HttpServer;
 use Ratchet\MessageComponentInterface;
@@ -126,21 +127,29 @@ final class CandleChatServer implements MessageComponentInterface
         if ($type === 'message') {
             $body = trim((string)($data['body'] ?? ''));
             if ($body === '' || mb_strlen($body) > 4000) return;
+            $senderRole = $info['role'] === 'consultant' ? 'consultant' : 'user';
             $msgId = DB::insert('messages', [
                 'session_id'  => $sid,
                 'sender_id'   => $info['user_id'],
-                'sender_role' => $info['role'] === 'consultant' ? 'consultant' : 'user',
+                'sender_role' => $senderRole,
                 'body'        => $body,
             ]);
             $payload = [
                 'type'        => 'message',
                 'id'          => $msgId,
                 'sender_id'   => $info['user_id'],
-                'sender_role' => $info['role'] === 'consultant' ? 'consultant' : 'user',
+                'sender_role' => $senderRole,
                 'body'        => $body,
                 'created_at'  => date('c'),
             ];
             $this->broadcastToSession($sid, $payload);
+
+            // Push the message to the recipient if they aren't already
+            // connected to this chat room. When both sides are in-room
+            // the WS broadcast above already delivers it, so a push
+            // would be redundant noise (and would also play the chat
+            // banner on top of the open chat screen).
+            $this->maybePushChatMessage($sid, $info['user_id'], $senderRole, $msgId, $body);
             return;
         }
 
@@ -171,6 +180,65 @@ final class CandleChatServer implements MessageComponentInterface
     public function onError(ConnectionInterface $conn, \Exception $e): void
     {
         $conn->close();
+    }
+
+    /**
+     * Queue + send an APNs/FCM push for a chat message, but only if the
+     * recipient has no live WebSocket connection on this session. If they
+     * are connected they already got the message via `broadcastToSession`.
+     */
+    private function maybePushChatMessage(int $sessionId, int $senderUserId, string $senderRole, int $msgId, string $body): void
+    {
+        try {
+            $sess = DB::one(
+                'SELECT s.user_id AS client_user_id, c.user_id AS consultant_user_id, c.name AS consultant_name
+                   FROM sessions s
+                   LEFT JOIN consultants c ON c.id = s.consultant_id
+                  WHERE s.id = :sid',
+                [':sid' => $sessionId]
+            );
+            if (!$sess) return;
+
+            if ($senderRole === 'consultant') {
+                $recipientUserId = (int)$sess['client_user_id'];
+                $senderName = (string)($sess['consultant_name'] ?? 'المستشار');
+            } else {
+                $recipientUserId = (int)($sess['consultant_user_id'] ?? 0);
+                $u = DB::one('SELECT name FROM users WHERE id = :id', [':id' => $senderUserId]);
+                $senderName = (string)($u['name'] ?? 'العميل');
+            }
+            if ($recipientUserId <= 0 || $recipientUserId === $senderUserId) return;
+
+            // Skip the push if the recipient already has a live socket
+            // attached to this session — they're seeing the chat in real
+            // time and don't need a banner on top.
+            foreach ($this->clients as $conn) {
+                $info = $this->clients[$conn];
+                if ($info['user_id'] === $recipientUserId && $info['session_id'] === $sessionId) {
+                    return;
+                }
+            }
+
+            $preview = mb_substr($body, 0, 100);
+            if (mb_strlen($body) > 100) $preview .= '…';
+
+            $notifId = DB::insert('notifications', [
+                'user_id'      => $recipientUserId,
+                'kind'         => 'chat_message',
+                'title'        => $senderName,
+                'body'         => $preview,
+                'payload_json' => json_encode([
+                    'type'        => 'chat_message',
+                    'session_id'  => $sessionId,
+                    'message_id'  => $msgId,
+                    'sender_role' => $senderRole,
+                ], JSON_UNESCAPED_UNICODE),
+                'status'       => 'queued',
+            ]);
+            (new PushService())->send($notifId);
+        } catch (\Throwable $e) {
+            // Best-effort: never let a push failure break the chat path.
+        }
     }
 
     public function broadcastToSession(int $sessionId, array $payload, ?ConnectionInterface $except = null): void
