@@ -10,6 +10,7 @@ use App\Core\Request;
 use App\Core\Response;
 use App\Core\Validator;
 use App\Models\Subscription;
+use App\Services\PushService;
 
 final class BookingController
 {
@@ -120,17 +121,25 @@ final class BookingController
             [':id' => (int)$cons['id']]
         );
         if ($consultant && !empty($consultant['user_id'])) {
-            DB::insert('notifications', [
+            $clientName = DB::one(
+                'SELECT name FROM users WHERE id = :id',
+                [':id' => $uid]
+            )['name'] ?? 'عميل';
+            $notifId = DB::insert('notifications', [
                 'user_id'      => (int)$consultant['user_id'],
                 'kind'         => 'session_reminder',
                 'title'        => 'طلب جلسة جديد',
-                'body'         => 'طلب حجز جديد — حدّد موعد الجلسة',
+                'body'         => $clientName . ' — حدّد موعد الجلسة',
                 'payload_json' => json_encode([
                     'session_id' => $sessionId,
                     'kind'       => 'consultant_new_booking',
                 ], JSON_UNESCAPED_UNICODE),
                 'status'       => 'queued',
             ]);
+            // Dispatch inline so the consultant's phone vibrates within
+            // seconds — the cron tick is once a minute and that's too
+            // long to wait for the booking-arrived signal.
+            try { (new PushService())->send($notifId); } catch (\Throwable $e) { /* best-effort */ }
         }
 
         Response::json(['session_id' => $sessionId], 201);
