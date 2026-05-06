@@ -213,6 +213,69 @@ $initials  = mb_strtoupper(mb_substr((string)($_SESSION['admin_name'] ?? 'A'), 0
   .auth-card .sub { color: var(--text-muted); font-size: 13px; text-align: center; margin-bottom: 22px; }
   .auth-card .err { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #fca5a5; padding: 10px 12px; border-radius: 10px; font-size: 13px; margin-bottom: 14px; }
   .auth-card button { width: 100%; justify-content: center; padding: 12px; margin-top: 6px; }
+
+  /* Mobile (≤900px): collapse the side rail into a horizontal scrolling
+     icon strip at the top and let the main column take full width. The
+     active item keeps its label so the user can tell where they are; the
+     rest become icon-only pills that scroll horizontally. */
+  @media (max-width: 900px) {
+    .sidebar {
+      position: static;
+      height: auto;
+      flex-direction: row;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      border-inline-end: 0;
+      border-bottom: 1px solid var(--border-soft);
+      scrollbar-width: none;
+    }
+    .sidebar::-webkit-scrollbar { display: none; }
+    .sidebar .brand {
+      border-bottom: 0;
+      border-inline-end: 1px solid var(--border-soft);
+      padding: 0 10px 0 0;
+      flex-shrink: 0;
+    }
+    .sidebar .brand .logo { width: 32px; height: 32px; }
+    .sidebar .brand .name { font-size: 13px; }
+    .sidebar .brand .name small { display: none; }
+    .nav { flex-direction: row; gap: 4px; flex-shrink: 0; }
+    .nav a { padding: 8px 10px; font-size: 13px; white-space: nowrap; }
+    .nav a span { display: none; }
+    .nav a.active span { display: inline; }
+    .nav a.active { padding: 8px 12px; }
+    .side-foot {
+      margin-top: 0;
+      margin-inline-start: auto;
+      flex-direction: row;
+      align-items: center;
+      gap: 8px;
+      border-top: 0;
+      padding-top: 0;
+      flex-shrink: 0;
+    }
+    .side-foot .who { display: none; }
+    .side-foot .logout { padding: 6px 10px; font-size: 12px; white-space: nowrap; }
+  }
+
+  /* Phone (≤700px): wide tables would otherwise blow the card's width.
+     Make the card itself scroll horizontally and pin a sane minimum
+     table width so the columns don't squash to unreadable mush. */
+  @media (max-width: 700px) {
+    .main { padding: 14px 12px 32px; }
+    .card { padding: 14px 12px; overflow-x: auto; }
+    .card > table { min-width: 540px; }
+    .card h2 { font-size: 15px; }
+    th, td { padding: 8px 8px; font-size: 13px; }
+    thead th { font-size: 10px; letter-spacing: .8px; }
+    .topbar h1 { font-size: 19px; }
+    .stat .n { font-size: 22px; }
+    .stat { padding: 14px 14px; }
+    .btn-sm { padding: 5px 10px; font-size: 11px; }
+  }
 </style>
 
 <svg width="0" height="0" style="position: absolute" aria-hidden="true">
