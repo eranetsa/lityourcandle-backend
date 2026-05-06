@@ -26,21 +26,23 @@
         <td><?= htmlspecialchars($r['scheduled_at'] ?? '—') ?></td>
         <td><?= $r['duration_min'] ?? '—' ?></td>
         <td><?= $r['post_rating'] ?? '—' ?></td>
-        <td style="display:flex; gap:6px;">
-          <?php if ($isOpen): ?>
-            <form method="post" class="inline" onsubmit="return confirm('إلغاء الجلسة #<?= $r['id'] ?>؟')">
+        <td>
+          <div style="display:flex; gap:6px; flex-wrap:wrap;">
+            <?php if ($isOpen): ?>
+              <form method="post" class="inline" onsubmit="return confirm('إلغاء الجلسة #<?= $r['id'] ?>؟')">
+                <input type="hidden" name="csrf" value="<?= csrf() ?>">
+                <input type="hidden" name="op"   value="cancel">
+                <input type="hidden" name="id"   value="<?= $r['id'] ?>">
+                <button type="submit" class="btn-sm btn-ghost">إلغاء</button>
+              </form>
+            <?php endif; ?>
+            <form method="post" class="inline" onsubmit="return confirm('حذف الجلسة نهائياً؟')">
               <input type="hidden" name="csrf" value="<?= csrf() ?>">
-              <input type="hidden" name="op"   value="cancel">
+              <input type="hidden" name="op"   value="delete">
               <input type="hidden" name="id"   value="<?= $r['id'] ?>">
-              <button type="submit" class="btn-sm btn-ghost">إلغاء</button>
+              <button type="submit" class="btn-danger btn-sm">حذف</button>
             </form>
-          <?php endif; ?>
-          <form method="post" class="inline" onsubmit="return confirm('حذف الجلسة نهائياً؟')">
-            <input type="hidden" name="csrf" value="<?= csrf() ?>">
-            <input type="hidden" name="op"   value="delete">
-            <input type="hidden" name="id"   value="<?= $r['id'] ?>">
-            <button type="submit" class="btn-danger btn-sm">حذف</button>
-          </form>
+          </div>
         </td>
       </tr>
       <?php endforeach; ?>

@@ -81,20 +81,22 @@
             <span class="badge b-paid">بريميوم</span>
           <?php endif; ?>
         </td>
-        <td style="display:flex; gap:6px;">
-          <a href="?action=programs&edit=<?= $p['id'] ?>" class="btn btn-sm btn-ghost">تعديل</a>
-          <form method="post" class="inline">
-            <input type="hidden" name="csrf" value="<?= csrf() ?>">
-            <input type="hidden" name="op" value="toggle_program_active">
-            <input type="hidden" name="id" value="<?= $p['id'] ?>">
-            <button type="submit" class="btn-sm btn-ghost"><?= $p['is_active'] ? 'إيقاف' : 'تفعيل' ?></button>
-          </form>
-          <form method="post" class="inline" onsubmit="return confirm('حذف البرنامج وكل أيامه؟')">
-            <input type="hidden" name="csrf" value="<?= csrf() ?>">
-            <input type="hidden" name="op" value="delete_program">
-            <input type="hidden" name="id" value="<?= $p['id'] ?>">
-            <button type="submit" class="btn-danger btn-sm">حذف</button>
-          </form>
+        <td>
+          <div style="display:flex; gap:6px; flex-wrap:wrap;">
+            <a href="?action=programs&edit=<?= $p['id'] ?>" class="btn btn-sm btn-ghost">تعديل</a>
+            <form method="post" class="inline">
+              <input type="hidden" name="csrf" value="<?= csrf() ?>">
+              <input type="hidden" name="op" value="toggle_program_active">
+              <input type="hidden" name="id" value="<?= $p['id'] ?>">
+              <button type="submit" class="btn-sm btn-ghost"><?= $p['is_active'] ? 'إيقاف' : 'تفعيل' ?></button>
+            </form>
+            <form method="post" class="inline" onsubmit="return confirm('حذف البرنامج وكل أيامه؟')">
+              <input type="hidden" name="csrf" value="<?= csrf() ?>">
+              <input type="hidden" name="op" value="delete_program">
+              <input type="hidden" name="id" value="<?= $p['id'] ?>">
+              <button type="submit" class="btn-danger btn-sm">حذف</button>
+            </form>
+          </div>
         </td>
       </tr>
       <?php endforeach; ?>

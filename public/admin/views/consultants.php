@@ -77,14 +77,16 @@
           <?php endif; ?>
         </td>
         <td><span class="badge <?= $r['is_available'] ? 'b-active' : 'b-inactive' ?>"><?= $r['is_available'] ? 'نعم' : 'لا' ?></span></td>
-        <td style="display:flex; gap:6px;">
-          <a href="?action=consultants&edit=<?= $r['id'] ?>" class="btn btn-sm btn-ghost">تعديل</a>
-          <form method="post" class="inline" onsubmit="return confirm('حذف هذا المستشار؟')">
-            <input type="hidden" name="csrf" value="<?= csrf() ?>">
-            <input type="hidden" name="op" value="delete">
-            <input type="hidden" name="id" value="<?= $r['id'] ?>">
-            <button type="submit" class="btn-danger btn-sm">حذف</button>
-          </form>
+        <td>
+          <div style="display:flex; gap:6px; flex-wrap:wrap;">
+            <a href="?action=consultants&edit=<?= $r['id'] ?>" class="btn btn-sm btn-ghost">تعديل</a>
+            <form method="post" class="inline" onsubmit="return confirm('حذف هذا المستشار؟')">
+              <input type="hidden" name="csrf" value="<?= csrf() ?>">
+              <input type="hidden" name="op" value="delete">
+              <input type="hidden" name="id" value="<?= $r['id'] ?>">
+              <button type="submit" class="btn-danger btn-sm">حذف</button>
+            </form>
+          </div>
         </td>
       </tr>
       <?php endforeach; ?>
