@@ -272,9 +272,58 @@ $initials  = mb_strtoupper(mb_substr((string)($_SESSION['admin_name'] ?? 'A'), 0
     th, td { padding: 8px 8px; font-size: 13px; }
     thead th { font-size: 10px; letter-spacing: .8px; }
     .topbar h1 { font-size: 19px; }
+    .topbar { gap: 8px; }
+    .topbar > * { min-width: 0; }
+    .topbar form,
+    .topbar .actions { width: 100%; }
     .stat .n { font-size: 22px; }
     .stat { padding: 14px 14px; }
     .btn-sm { padding: 5px 10px; font-size: 11px; }
+
+    /* Many forms use inline `style="display:grid; grid-template-columns:
+       1fr 1fr"` to lay out two-column field rows. Inline styles outrank
+       normal CSS, so use !important to flatten them to a single column
+       on small screens. The selector is broad on purpose — any inline
+       grid-template-columns inside the main column collapses. */
+    .main [style*="grid-template-columns"] {
+      grid-template-columns: 1fr !important;
+    }
+
+    /* Inline-styled flex rows that hold buttons or filters: let them
+       wrap so action buttons don't overflow the card. */
+    .main [style*="display:flex"],
+    .main [style*="display: flex"] {
+      flex-wrap: wrap;
+    }
+
+    /* The "actions" cell on session/user/consultant rows already uses
+       inline flex; once it wraps the gap matters more. */
+    td [style*="display:flex"] { gap: 6px; row-gap: 6px; }
+
+    /* Search forms with a max-width: 500px lose nothing by stretching. */
+    form[style*="max-width:500px"] { max-width: 100% !important; }
+
+    /* Allow long tokens / emails / urls inside cells to wrap rather
+       than push the table wider than the screen. */
+    td { overflow-wrap: anywhere; word-break: break-word; }
+
+    /* Buttons should be a comfortable tap target on phones. */
+    button, .btn { min-height: 38px; }
+    .btn-sm { min-height: 30px; }
+
+    /* Auth (login) card scales down on tiny phones too. */
+    .auth-card { padding: 22px 18px; }
+    .auth-card h2 { font-size: 19px; }
+  }
+
+  /* Tiny phones (≤400px): one more notch tighter so iPhone SE-class
+     viewports stop horizontal-scrolling the topbar. */
+  @media (max-width: 400px) {
+    .sidebar { padding: 8px 10px; gap: 6px; }
+    .sidebar .brand .name { display: none; }
+    .nav a { padding: 7px 8px; }
+    .topbar h1 { font-size: 17px; }
+    .topbar h1 small { font-size: 11px; }
   }
 </style>
 
