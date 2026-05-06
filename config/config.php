@@ -44,7 +44,12 @@ return [
         'anthropic_model' => $_ENV['ANTHROPIC_MODEL'] ?? 'claude-haiku-4-5-20251001',
     ],
     'push' => [
-        'fcm_server_key' => $_ENV['FCM_SERVER_KEY'] ?? '',
+        // Legacy FCM server key — Google disabled the `fcm/send` endpoint
+        // in 2024. Kept only so old deployments don't error out; new
+        // installs should use HTTP v1 via the service account JSON below.
+        'fcm_server_key'           => $_ENV['FCM_SERVER_KEY'] ?? '',
+        'fcm_project_id'           => $_ENV['FCM_PROJECT_ID'] ?? '',
+        'fcm_service_account_path' => $_ENV['FCM_SERVICE_ACCOUNT_PATH'] ?? '',
         'apns_key_id'    => $_ENV['APNS_KEY_ID'] ?? '',
         'apns_team_id'   => $_ENV['APNS_TEAM_ID'] ?? '',
         'apns_bundle_id' => $_ENV['APNS_BUNDLE_ID'] ?? '',

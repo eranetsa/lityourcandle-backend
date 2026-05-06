@@ -86,50 +86,151 @@ final class PushService
 
     private function sendFcm(array $n, array $tok): bool
     {
-        $key = (string)App::config('push.fcm_server_key');
-        if ($key === '') return false;
+        $projectId   = (string)App::config('push.fcm_project_id');
+        $accountPath = (string)App::config('push.fcm_service_account_path');
+        if ($projectId === '' || $accountPath === '' || !is_readable($accountPath)) {
+            Logger::error('fcm_misconfigured', [
+                'has_project'         => $projectId !== '',
+                'service_account_set' => $accountPath !== '',
+                'readable'            => $accountPath !== '' && is_readable($accountPath),
+            ]);
+            return false;
+        }
+
+        $token = $this->fcmAccessToken($accountPath);
+        if (!$token) return false;
+
         $isCall = ($n['kind'] ?? '') === 'incoming_call';
         $data   = json_decode($n['payload_json'] ?? 'null', true) ?: [];
 
-        try {
-            $body = [
-                'to'       => $tok['token'],
-                'priority' => 'high',
-                'data'     => $data + [
-                    'title' => $n['title'],
-                    'body'  => $n['body'],
-                    'kind'  => $n['kind'],
-                ],
+        // FCM v1 requires data values to be strings. Cast everything so
+        // numeric ids and booleans pass through cleanly.
+        $stringData = [];
+        foreach ($data + ['title' => $n['title'], 'body' => $n['body'], 'kind' => $n['kind']] as $k => $v) {
+            $stringData[$k] = is_scalar($v) ? (string)$v : json_encode($v, JSON_UNESCAPED_UNICODE);
+        }
+
+        $message = [
+            'token'        => $tok['token'],
+            'notification' => [
+                'title' => $n['title'],
+                'body'  => $n['body'],
+            ],
+            'data'    => $stringData,
+            'android' => [
+                'priority'     => 'high',
                 'notification' => [
-                    'title' => $n['title'],
-                    'body'  => $n['body'],
                     // Routing call notifications through the high-importance
                     // "incoming-call" channel is what makes the device ring
                     // even when the app is killed (data-only messages do
                     // nothing on a killed app for most OEMs).
-                    'sound'              => $isCall ? 'incoming_call' : 'default',
-                    'android_channel_id' => $isCall ? 'incoming-call' : 'default',
+                    'channel_id' => $isCall ? 'incoming-call' : 'default',
+                    'sound'      => $isCall ? 'incoming_call' : 'default',
                 ],
-            ];
-            if ($isCall) {
-                $body['android'] = [
-                    'priority' => 'high',
-                    'ttl'      => '45s',
-                ];
-            }
+            ],
+        ];
+        if ($isCall) {
+            $message['android']['ttl'] = '45s';
+        }
 
-            $c = new Client(['timeout' => 10]);
-            $c->post('https://fcm.googleapis.com/fcm/send', [
-                'headers' => [
-                    'Authorization' => 'key=' . $key,
-                    'Content-Type'  => 'application/json',
-                ],
-                'json' => $body,
+        try {
+            $c = new Client(['timeout' => 10, 'http_errors' => false]);
+            $resp = $c->post(
+                'https://fcm.googleapis.com/v1/projects/' . rawurlencode($projectId) . '/messages:send',
+                [
+                    'headers' => [
+                        'Authorization' => 'Bearer ' . $token,
+                        'Content-Type'  => 'application/json',
+                    ],
+                    'json' => ['message' => $message],
+                ]
+            );
+            $status = $resp->getStatusCode();
+            if ($status >= 200 && $status < 300) {
+                return true;
+            }
+            Logger::error('fcm_send_failed', [
+                'http' => $status,
+                'body' => substr((string)$resp->getBody(), 0, 500),
+                'kind' => $n['kind'],
             ]);
-            return true;
+            return false;
         } catch (\Throwable $e) {
             Logger::error('fcm_error', ['msg' => $e->getMessage()]);
             return false;
+        }
+    }
+
+    /**
+     * Exchange the service-account JSON for a short-lived OAuth2 access
+     * token scoped to FCM. Cached on disk for 50 minutes (token TTL is 60).
+     */
+    private function fcmAccessToken(string $accountPath): ?string
+    {
+        $cacheFile = sys_get_temp_dir() . '/fcm_token_' . md5($accountPath) . '.json';
+        if (is_readable($cacheFile)) {
+            $cached = json_decode((string)@file_get_contents($cacheFile), true);
+            if (is_array($cached) && ($cached['exp'] ?? 0) > time() + 60) {
+                return (string)$cached['token'];
+            }
+        }
+
+        $sa = json_decode((string)@file_get_contents($accountPath), true);
+        if (!is_array($sa) || empty($sa['client_email']) || empty($sa['private_key'])) {
+            Logger::error('fcm_service_account_invalid', ['path' => $accountPath]);
+            return null;
+        }
+
+        $now = time();
+        $header = ['alg' => 'RS256', 'typ' => 'JWT'];
+        $claim = [
+            'iss'   => $sa['client_email'],
+            'scope' => 'https://www.googleapis.com/auth/firebase.messaging',
+            'aud'   => 'https://oauth2.googleapis.com/token',
+            'iat'   => $now,
+            'exp'   => $now + 3600,
+        ];
+        $b64 = static fn(string $s) => rtrim(strtr(base64_encode($s), '+/', '-_'), '=');
+        $signingInput = $b64(json_encode($header)) . '.' . $b64(json_encode($claim));
+
+        $key = openssl_pkey_get_private((string)$sa['private_key']);
+        if (!$key) {
+            Logger::error('fcm_private_key_load_failed', []);
+            return null;
+        }
+        $sig = '';
+        if (!openssl_sign($signingInput, $sig, $key, OPENSSL_ALGO_SHA256)) {
+            Logger::error('fcm_sign_failed', []);
+            return null;
+        }
+        $assertion = $signingInput . '.' . $b64($sig);
+
+        try {
+            $c = new Client(['timeout' => 10, 'http_errors' => false]);
+            $resp = $c->post('https://oauth2.googleapis.com/token', [
+                'form_params' => [
+                    'grant_type' => 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+                    'assertion'  => $assertion,
+                ],
+            ]);
+            $body = json_decode((string)$resp->getBody(), true) ?: [];
+            if ($resp->getStatusCode() >= 300 || empty($body['access_token'])) {
+                Logger::error('fcm_token_exchange_failed', [
+                    'http' => $resp->getStatusCode(),
+                    'body' => substr((string)$resp->getBody(), 0, 300),
+                ]);
+                return null;
+            }
+            $token = (string)$body['access_token'];
+            @file_put_contents($cacheFile, json_encode([
+                'token' => $token,
+                'exp'   => $now + (int)($body['expires_in'] ?? 3600),
+            ]));
+            @chmod($cacheFile, 0600);
+            return $token;
+        } catch (\Throwable $e) {
+            Logger::error('fcm_token_exception', ['msg' => $e->getMessage()]);
+            return null;
         }
     }
 
