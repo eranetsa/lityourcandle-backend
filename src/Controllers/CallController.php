@@ -34,13 +34,21 @@ final class CallController
             'media' => 'required|in:voice,video',
         ]);
 
-        if (!in_array($sess['status'], ['confirmed', 'in_progress'], true)) {
+        // The consultant is allowed to ring at any time once the booking
+        // exists — even before the scheduled slot arrives, and even if
+        // they haven't scheduled yet. Only refuse if the session is in
+        // a terminal state (completed/canceled/no_show).
+        if (!in_array($sess['status'], ['pending', 'confirmed', 'in_progress'], true)) {
             Response::error('invalid_state', 409);
         }
+
+        // If the booking was originally chat (or a different call type),
+        // flip it on-the-fly so the receiver lands in the matching view
+        // when they accept. Saves the client a separate `setType` round
+        // trip and avoids the old `session_type_mismatch` rejection.
         if ($sess['type'] !== $data['media']) {
-            // The session must already be of the matching type — flip it via
-            // /sessions/{id}/type before inviting if needed.
-            Response::error('session_type_mismatch', 422);
+            DB::update('sessions', ['type' => $data['media']], 'id = :id', [':id' => (int)$sess['id']]);
+            $sess['type'] = $data['media'];
         }
 
         // If a ringing invite already exists for this session, reuse it
