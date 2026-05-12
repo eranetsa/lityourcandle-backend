@@ -27,33 +27,13 @@ final class SubscriptionController
 
     public function startTrial(Request $req): void
     {
-        $uid = $req->userId();
-        $u = DB::one('SELECT trial_started_at FROM users WHERE id = :id', [':id' => $uid]);
-        if ($u && !empty($u['trial_started_at'])) {
-            Response::error('trial_already_used', 409);
-        }
-
-        $days = (int)App::config('plans.trial_days', 3);
-        $trialEnds = date('Y-m-d H:i:s', strtotime("+$days days"));
-
-        DB::transaction(function () use ($uid, $trialEnds) {
-            DB::update('users', [
-                'trial_started_at' => date('Y-m-d H:i:s'),
-                'trial_ends_at'    => $trialEnds,
-            ], 'id = :id', [':id' => $uid]);
-
-            DB::insert('subscriptions', [
-                'user_id'       => $uid,
-                'plan'          => 'weekly',  // trial gives weekly-tier features (no sessions)
-                'status'        => 'trial',
-                'store'         => 'manual',
-                'expires_at'    => $trialEnds,
-                'trial_ends_at' => $trialEnds,
-                'auto_renew'    => 0,
-            ]);
-        });
-
-        Response::json(['ok' => true, 'trial_ends_at' => $trialEnds]);
+        // Free trials were retired — subscriptions now bill immediately on
+        // purchase. The endpoint stays mounted so old clients don't 404,
+        // but rejects every call. Existing trial rows expire naturally via
+        // cron/update_subscriptions.php and stop being renewed by anyone.
+        Response::error('trial_not_offered', 410, [
+            'message_ar' => 'لم تعد التجربة المجانية متاحة. الرجاء الاشتراك مباشرة.',
+        ]);
     }
 
     public function validateApple(Request $req): void

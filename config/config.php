@@ -96,6 +96,9 @@ return [
             'subscriber'     => 300.00,
             'non_subscriber' => 500.00,
         ],
-        'trial_days' => 3,
+        // Free trials retired: subscriptions bill immediately. Existing
+        // trial rows still expire on their original schedule via
+        // cron/update_subscriptions.php.
+        'trial_days' => 0,
     ],
 ];
