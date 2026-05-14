@@ -75,8 +75,71 @@
   </form>
 </div>
 
+<?php
+$tab          = $tab          ?? 'all';
+$filterPlan   = $filterPlan   ?? '';
+$filterStatus = $filterStatus ?? '';
+$filterQ      = $filterQ      ?? '';
+$counts       = $counts       ?? ['paid' => 0, 'free' => 0, 'total' => 0];
+
+$tabHref = function (string $key) use ($filterPlan, $filterStatus, $filterQ): string {
+  $q = ['action' => 'subscriptions', 'tab' => $key];
+  if ($filterPlan   !== '') $q['plan']   = $filterPlan;
+  if ($filterStatus !== '') $q['status'] = $filterStatus;
+  if ($filterQ      !== '') $q['q']      = $filterQ;
+  return '?' . http_build_query($q);
+};
+?>
 <div class="card">
   <h2 style="margin-top:0;">الاشتراكات</h2>
+
+  <!-- Tabs ─ all / paid / free -->
+  <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px;">
+    <a href="<?= htmlspecialchars($tabHref('all')) ?>"
+       class="<?= $tab === 'all' ? 'btn' : 'btn-ghost' ?> btn-sm">
+      الكل <small style="opacity:.7;">(<?= (int)$counts['total'] ?>)</small>
+    </a>
+    <a href="<?= htmlspecialchars($tabHref('paid')) ?>"
+       class="<?= $tab === 'paid' ? 'btn' : 'btn-ghost' ?> btn-sm">
+      المدفوعة <small style="opacity:.7;">(<?= (int)$counts['paid'] ?>)</small>
+    </a>
+    <a href="<?= htmlspecialchars($tabHref('free')) ?>"
+       class="<?= $tab === 'free' ? 'btn' : 'btn-ghost' ?> btn-sm">
+      المجانية <small style="opacity:.7;">(<?= (int)$counts['free'] ?>)</small>
+    </a>
+  </div>
+
+  <!-- Filter row -->
+  <form method="get" action="?action=subscriptions"
+        style="display:grid; grid-template-columns: 1fr 180px 180px auto; gap:8px; margin-bottom:14px;">
+    <input type="hidden" name="action" value="subscriptions">
+    <input type="hidden" name="tab"    value="<?= htmlspecialchars($tab) ?>">
+    <input type="text" name="q" placeholder="ابحث بالاسم أو البريد"
+           value="<?= htmlspecialchars($filterQ) ?>">
+    <select name="plan">
+      <option value="">كل الباقات</option>
+      <?php foreach (['free','weekly','monthly','yearly','lifetime'] as $p): ?>
+        <option value="<?= $p ?>" <?= $filterPlan === $p ? 'selected' : '' ?>>
+          <?= htmlspecialchars($p) ?>
+        </option>
+      <?php endforeach; ?>
+    </select>
+    <select name="status">
+      <option value="">كل الحالات</option>
+      <?php foreach (['active','trial','expired','canceled','grace'] as $st): ?>
+        <option value="<?= $st ?>" <?= $filterStatus === $st ? 'selected' : '' ?>>
+          <?= htmlspecialchars($st) ?>
+        </option>
+      <?php endforeach; ?>
+    </select>
+    <button type="submit" class="btn-ghost btn-sm">تصفية</button>
+  </form>
+
+  <?php if (empty($rows)): ?>
+    <p style="color:var(--text-muted); text-align:center; padding:24px 0;">
+      لا توجد اشتراكات تطابق الفلتر الحالي.
+    </p>
+  <?php else: ?>
   <table>
     <thead><tr><th>#</th><th>المستخدم</th><th>الباقة</th><th>الحالة</th><th>المتجر</th><th>الانتهاء</th><th>جلسات متبقية</th></tr></thead>
     <tbody>
@@ -93,4 +156,5 @@
       <?php endforeach; ?>
     </tbody>
   </table>
+  <?php endif; ?>
 </div>

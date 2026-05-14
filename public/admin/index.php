@@ -417,10 +417,54 @@ function subscriptions_index(): void
     $planYearlyPerMonth = (int)(Settings::get('plan_yearly_sessions_per_month',
         (string)($cfg['yearly']['sessions_per_month'] ?? 2)) ?? 2);
 
+    // ─── List filtering ────────────────────────────────────────────────
+    // tab : all (default) | paid | free
+    // plan: exact plan slug (weekly/monthly/yearly/free/lifetime)
+    // status: active | trial | expired | canceled | grace
+    // q   : substring of user name OR email
+    $tab    = (string)($_GET['tab']    ?? 'all');
+    $plan   = (string)($_GET['plan']   ?? '');
+    $status = (string)($_GET['status'] ?? '');
+    $q      = trim((string)($_GET['q'] ?? ''));
+
+    $where  = [];
+    $params = [];
+    if ($tab === 'paid') {
+        $where[] = "s.plan IN ('weekly','monthly','yearly','lifetime')";
+    } elseif ($tab === 'free') {
+        $where[] = "s.plan = 'free'";
+    }
+    if (in_array($plan, ['weekly','monthly','yearly','free','lifetime'], true)) {
+        $where[] = "s.plan = :plan";
+        $params[':plan'] = $plan;
+    }
+    if (in_array($status, ['active','trial','expired','canceled','grace'], true)) {
+        $where[] = "s.status = :status";
+        $params[':status'] = $status;
+    }
+    if ($q !== '') {
+        $where[] = "(u.name LIKE :q OR u.email LIKE :q)";
+        $params[':q'] = '%' . $q . '%';
+    }
+    $whereSql = $where ? 'WHERE ' . implode(' AND ', $where) : '';
+
+    // Counts per tab (ignores plan/status/q filters so the tab labels
+    // always reflect the global totals — feels more natural for an admin
+    // table than tabs that flicker as you narrow the search).
+    $counts = DB::one(
+        "SELECT
+            SUM(s.plan IN ('weekly','monthly','yearly','lifetime')) AS paid,
+            SUM(s.plan = 'free') AS free,
+            COUNT(*) AS total
+         FROM subscriptions s"
+    ) ?: ['paid' => 0, 'free' => 0, 'total' => 0];
+
     $rows = DB::all(
         "SELECT s.*, u.name AS user_name, u.email
          FROM subscriptions s JOIN users u ON u.id = s.user_id
-         ORDER BY s.id DESC LIMIT 200"
+         $whereSql
+         ORDER BY s.id DESC LIMIT 200",
+        $params
     );
     render('subscriptions', [
         'rows'                => $rows,
@@ -432,6 +476,11 @@ function subscriptions_index(): void
         'cfgWeekly'           => (int)($cfg['weekly']['sessions'] ?? 0),
         'cfgMonthly'          => (int)($cfg['monthly']['sessions'] ?? 1),
         'cfgYearlyPerMonth'   => (int)($cfg['yearly']['sessions_per_month'] ?? 2),
+        'tab'                 => $tab,
+        'filterPlan'          => $plan,
+        'filterStatus'        => $status,
+        'filterQ'             => $q,
+        'counts'              => $counts,
     ]);
 }
 
