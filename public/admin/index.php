@@ -83,6 +83,8 @@ require_admin();
 switch ($action) {
     case 'dashboard':     dashboard(); break;
     case 'users':         users_index(); break;
+    case 'user':          user_detail(); break;
+    case 'session_transcript': session_transcript(); break;
     case 'consultants':   consultants_index(); break;
     case 'sessions':      sessions_index(); break;
     case 'subscriptions': subscriptions_index(); break;
@@ -145,6 +147,106 @@ function users_index(): void
         header('Location: /admin/?action=users'); exit;
     }
     render('users', ['rows' => $rows, 'q' => $q]);
+}
+
+/**
+ * Customer detail — single user's profile plus their AI chat log
+ * (grouped by day) and every human consultation session. Each row
+ * exposes a "view full chat" link into ai_session / session_transcript.
+ */
+function user_detail(): void
+{
+    $uid = (int)($_GET['id'] ?? 0);
+    if ($uid <= 0) { http_response_code(400); exit('bad id'); }
+    $user = DB::one(
+        'SELECT id, name, email, phone, role, language, avatar_url,
+                is_active, created_at, trial_started_at, trial_ends_at
+           FROM users WHERE id = :id',
+        [':id' => $uid]
+    );
+    if (!$user) { http_response_code(404); exit('user not found'); }
+
+    // Active / most-recent subscription
+    $subscription = DB::one(
+        'SELECT id, plan, status, store, expires_at,
+                sessions_remaining, sessions_total, auto_renew, created_at
+           FROM subscriptions
+          WHERE user_id = :uid
+          ORDER BY id DESC LIMIT 1',
+        [':uid' => $uid]
+    );
+
+    // AI chats grouped by day (same shape as ai_user so we can reuse
+    // ai_session for the drill-down view).
+    $aiDays = DB::all(
+        "SELECT DATE(created_at) AS d,
+                COUNT(*)         AS msgs,
+                SUM(escalated)   AS escalated,
+                MIN(created_at)  AS started_at,
+                MAX(created_at)  AS ended_at,
+                SUBSTRING_INDEX(
+                  GROUP_CONCAT(user_message ORDER BY id ASC SEPARATOR '\n---\n'),
+                  '\n---\n', 1
+                ) AS opener
+           FROM ai_logs
+          WHERE user_id = :uid
+          GROUP BY DATE(created_at)
+          ORDER BY DATE(created_at) DESC
+          LIMIT 60",
+        [':uid' => $uid]
+    );
+
+    // Human consultation sessions, with message counts + the consultant
+    // they spoke to. Pulls 60 most recent — fine for the admin context.
+    $sessions = DB::all(
+        "SELECT s.id, s.type, s.status, s.scheduled_at, s.started_at,
+                s.ended_at, s.created_at, s.post_rating,
+                c.name AS consultant_name,
+                (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS msg_count
+           FROM sessions s
+           LEFT JOIN consultants c ON c.id = s.consultant_id
+          WHERE s.user_id = :uid
+          ORDER BY s.id DESC LIMIT 60",
+        [':uid' => $uid]
+    );
+
+    render('user_detail', [
+        'user'         => $user,
+        'subscription' => $subscription,
+        'aiDays'       => $aiDays,
+        'sessions'     => $sessions,
+    ]);
+}
+
+/**
+ * Full transcript of one human consultation session — every message
+ * between the client and the consultant in chronological order. Used
+ * from user_detail's "عرض المحادثة" link.
+ */
+function session_transcript(): void
+{
+    $sid = (int)($_GET['id'] ?? 0);
+    if ($sid <= 0) { http_response_code(400); exit('bad id'); }
+    $session = DB::one(
+        "SELECT s.*, u.name AS user_name, u.email AS user_email,
+                c.name AS consultant_name
+           FROM sessions s
+           JOIN users u ON u.id = s.user_id
+           LEFT JOIN consultants c ON c.id = s.consultant_id
+          WHERE s.id = :sid",
+        [':sid' => $sid]
+    );
+    if (!$session) { http_response_code(404); exit('session not found'); }
+
+    $messages = DB::all(
+        'SELECT id, sender_id, sender_role, body, attachment_url,
+                read_at, created_at
+           FROM messages
+          WHERE session_id = :sid
+          ORDER BY id ASC',
+        [':sid' => $sid]
+    );
+    render('session_transcript', ['session' => $session, 'messages' => $messages]);
 }
 
 function consultants_index(): void

@@ -25,7 +25,8 @@
           <?php endif; ?>
         </td>
         <td><span class="badge <?= $r['is_active'] ? 'b-active' : 'b-inactive' ?>"><?= $r['is_active'] ? 'نشط' : 'موقوف' ?></span></td>
-        <td>
+        <td style="display:flex; gap:6px;">
+          <a href="?action=user&amp;id=<?= (int)$r['id'] ?>" class="btn-ghost btn-sm">عرض</a>
           <form method="post" class="inline">
             <input type="hidden" name="csrf" value="<?= csrf() ?>">
             <input type="hidden" name="op" value="toggle">
