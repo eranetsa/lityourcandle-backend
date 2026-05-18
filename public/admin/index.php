@@ -124,29 +124,94 @@ function dashboard(): void
 
 function users_index(): void
 {
-    $q = trim($_GET['q'] ?? '');
-    $params = [];
-    $where = '1=1';
-    if ($q !== '') {
-        $where .= ' AND (u.email LIKE :q OR u.name LIKE :q OR u.phone LIKE :q)';
-        $params[':q'] = "%$q%";
-    }
-    $rows = DB::all(
-        "SELECT u.*, s.plan, s.status AS sub_status, s.expires_at
-         FROM users u
-         LEFT JOIN subscriptions s ON s.id = (SELECT MAX(id) FROM subscriptions WHERE user_id = u.id)
-         WHERE $where
-         ORDER BY u.id DESC LIMIT 200", $params
-    );
-
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['op'] ?? '') === 'toggle') {
         csrf_check();
         $id = (int)$_POST['id'];
         DB::run('UPDATE users SET is_active = 1 - is_active WHERE id = :id', [':id' => $id]);
         audit('toggle_active', 'user', $id);
-        header('Location: /admin/?action=users'); exit;
+        // Preserve filters when bouncing back so the admin doesn't lose
+        // their place after toggling a user.
+        $back = '/admin/?action=users';
+        $keep = array_filter(['tab','q','plan','sub_status','role'], fn($k) => isset($_GET[$k]) && $_GET[$k] !== '');
+        if ($keep) $back .= '&' . http_build_query(array_intersect_key($_GET, array_flip($keep)));
+        header('Location: ' . $back); exit;
     }
-    render('users', ['rows' => $rows, 'q' => $q]);
+
+    // ─── Filters via URL state ─────────────────────────────────────────
+    // tab        : all (default) | subscribed | free | inactive | guest
+    // q          : name / email / phone substring
+    // plan       : exact plan slug (free|weekly|monthly|yearly|lifetime)
+    // sub_status : subscription status (active|trial|expired|canceled|grace|none)
+    // role       : user|consultant|admin|guest
+    $tab        = (string)($_GET['tab']        ?? 'all');
+    $q          = trim((string)($_GET['q']     ?? ''));
+    $plan       = (string)($_GET['plan']       ?? '');
+    $subStatus  = (string)($_GET['sub_status'] ?? '');
+    $role       = (string)($_GET['role']       ?? '');
+
+    $where  = ['1=1'];
+    $params = [];
+    if ($tab === 'subscribed') {
+        // Paying users with an active subscription right now.
+        $where[] = "s.status = 'active' AND s.plan IN ('weekly','monthly','yearly','lifetime')";
+    } elseif ($tab === 'free') {
+        $where[] = "(s.id IS NULL OR s.plan = 'free' OR s.status NOT IN ('active','trial'))";
+    } elseif ($tab === 'inactive') {
+        $where[] = 'u.is_active = 0';
+    } elseif ($tab === 'guest') {
+        $where[] = "u.role = 'guest'";
+    }
+    if ($q !== '') {
+        $where[] = '(u.email LIKE :q OR u.name LIKE :q OR u.phone LIKE :q)';
+        $params[':q'] = "%$q%";
+    }
+    if (in_array($plan, ['free','weekly','monthly','yearly','lifetime'], true)) {
+        $where[] = 's.plan = :plan';
+        $params[':plan'] = $plan;
+    }
+    if ($subStatus === 'none') {
+        $where[] = 's.id IS NULL';
+    } elseif (in_array($subStatus, ['active','trial','expired','canceled','grace'], true)) {
+        $where[] = 's.status = :sub_status';
+        $params[':sub_status'] = $subStatus;
+    }
+    if (in_array($role, ['user','consultant','admin','guest'], true)) {
+        $where[] = 'u.role = :role';
+        $params[':role'] = $role;
+    }
+    $whereSql = 'WHERE ' . implode(' AND ', $where);
+
+    // Counts per tab — global (ignore current filters) so labels are
+    // stable while the admin narrows down.
+    $counts = DB::one(
+        "SELECT
+            COUNT(*) AS total,
+            SUM(s.status = 'active' AND s.plan IN ('weekly','monthly','yearly','lifetime')) AS subscribed,
+            SUM(s.id IS NULL OR s.plan = 'free' OR s.status NOT IN ('active','trial')) AS free,
+            SUM(u.is_active = 0) AS inactive,
+            SUM(u.role = 'guest') AS guest
+         FROM users u
+         LEFT JOIN subscriptions s ON s.id = (SELECT MAX(id) FROM subscriptions WHERE user_id = u.id)"
+    ) ?: ['total' => 0, 'subscribed' => 0, 'free' => 0, 'inactive' => 0, 'guest' => 0];
+
+    $rows = DB::all(
+        "SELECT u.*, s.plan, s.status AS sub_status, s.expires_at
+         FROM users u
+         LEFT JOIN subscriptions s ON s.id = (SELECT MAX(id) FROM subscriptions WHERE user_id = u.id)
+         $whereSql
+         ORDER BY u.id DESC LIMIT 200",
+        $params
+    );
+
+    render('users', [
+        'rows'              => $rows,
+        'q'                 => $q,
+        'tab'               => $tab,
+        'filterPlan'        => $plan,
+        'filterSubStatus'   => $subStatus,
+        'filterRole'        => $role,
+        'counts'            => $counts,
+    ]);
 }
 
 /**
