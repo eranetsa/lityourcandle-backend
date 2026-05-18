@@ -308,6 +308,50 @@ final class BookingController
         Response::json(['ok' => true, 'duration_min' => $duration]);
     }
 
+    /**
+     * Consultant / admin: re-open a previously closed or canceled session
+     * so they can keep talking to the same client without forcing them to
+     * book again. Flips status back to in_progress, clears the ended_at
+     * stamp, and notifies the client so their app pulls the session out
+     * of "completed" state on the next poll.
+     */
+    public function reopen(Request $req): void
+    {
+        if (!in_array($req->userRole(), ['consultant', 'admin'], true)) {
+            Response::error('forbidden', 403);
+        }
+        $sess = $this->loadOwned($req);
+        if (!in_array($sess['status'], ['completed', 'canceled', 'no_show'], true)) {
+            Response::error('invalid_state', 409, [
+                'message_ar' => 'الجلسة ليست منتهية أو ملغاة، لا حاجة لإعادة فتحها.',
+            ]);
+        }
+        DB::run(
+            "UPDATE sessions
+                SET status = 'in_progress',
+                    started_at = COALESCE(started_at, NOW()),
+                    ended_at = NULL
+              WHERE id = :id",
+            [':id' => $sess['id']]
+        );
+        $notifId = DB::insert('notifications', [
+            'user_id'      => (int)$sess['user_id'],
+            'kind'         => 'session_reminder',
+            'title'        => 'أعاد المستشار فتح جلستك 🕯️',
+            'body'         => 'يمكنك مواصلة المحادثة الآن من حيث توقفت.',
+            'payload_json' => json_encode([
+                'session_id' => (int)$sess['id'],
+                'kind'       => 'session_reopened',
+            ], JSON_UNESCAPED_UNICODE),
+            'status'       => 'queued',
+        ]);
+        // Inline dispatch so the client's phone wakes up immediately
+        // rather than waiting for the next cron tick.
+        try { (new \App\Services\PushService())->send($notifId); } catch (\Throwable $e) { /* best-effort */ }
+
+        Response::json(['ok' => true, 'status' => 'in_progress']);
+    }
+
     public function cancel(Request $req): void
     {
         $sess = $this->loadOwned($req);

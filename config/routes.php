@@ -53,6 +53,7 @@ $router->get ('/api/sessions/{id}',           [BookingController::class, 'show']
 $router->post('/api/sessions/{id}/start',     [BookingController::class, 'start'],    [AuthMiddleware::class]);
 $router->post('/api/sessions/{id}/end',       [BookingController::class, 'end'],      [AuthMiddleware::class]);
 $router->post('/api/sessions/{id}/cancel',    [BookingController::class, 'cancel'],   [AuthMiddleware::class]);
+$router->post('/api/sessions/{id}/reopen',    [BookingController::class, 'reopen'],   [AuthMiddleware::class]);
 $router->post('/api/sessions/{id}/feedback',  [BookingController::class, 'feedback'], [AuthMiddleware::class]);
 $router->post('/api/sessions/{id}/schedule', [BookingController::class, 'schedule'], [AuthMiddleware::class]);
 $router->post('/api/sessions/{id}/type',     [BookingController::class, 'setType'],  [AuthMiddleware::class]);
