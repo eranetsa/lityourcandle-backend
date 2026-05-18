@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Core\App;
+use App\Core\DB;
 use App\Core\Logger;
 use App\Core\Settings;
 use GuzzleHttp\Client;
@@ -132,10 +133,57 @@ TXT;
     private function systemPrompt(): string
     {
         $override = Settings::get(CANDLE_AI_PROMPT_KEY);
-        if ($override !== null && trim($override) !== '') {
-            return $override;
+        $base = ($override !== null && trim($override) !== '')
+            ? $override
+            : self::defaultSystemPrompt();
+
+        return $base . $this->referencesBlock();
+    }
+
+    /**
+     * Pulls every active `ai_references` row and concatenates the
+     * extracted text into a single appendix that gets glued onto the
+     * end of the system prompt. The block is short-circuited when
+     * there's nothing to add so empty installs don't pay an extra
+     * query per chat call.
+     *
+     * Total reference text is capped at 60_000 chars (≈ 20 KB tokens
+     * post-tokenization on Arabic, comfortably under Claude's context
+     * window even after the conversation history and the model's own
+     * output budget).
+     */
+    private function referencesBlock(): string
+    {
+        try {
+            $rows = DB::all(
+                'SELECT original_name, extracted_text
+                   FROM ai_references
+                  WHERE is_active = 1
+                  ORDER BY sort_order ASC, id ASC'
+            );
+        } catch (\Throwable $e) {
+            // Table doesn't exist yet on fresh installs: silently no-op.
+            return '';
         }
-        return self::defaultSystemPrompt();
+        if (!$rows) return '';
+
+        $parts = ["\n\n=== مراجع لتستند إليها في إجاباتك ===\n"
+                . "النصوص أدناه مرفوعة من إدارة التطبيق وتعتبر مصادر موثوقة. "
+                . "اعتمد عليها أولاً قبل معرفتك العامة، ونوّه للمستخدم لطفاً عندما تستشهد بها."];
+        $remaining = 60000;
+        foreach ($rows as $r) {
+            $text = trim((string)$r['extracted_text']);
+            if ($text === '') continue;
+            if (mb_strlen($text) > $remaining) {
+                $text = mb_substr($text, 0, $remaining) . "\n…";
+                $remaining = 0;
+            } else {
+                $remaining -= mb_strlen($text);
+            }
+            $parts[] = "--- " . (string)$r['original_name'] . " ---\n" . $text;
+            if ($remaining <= 0) break;
+        }
+        return "\n" . implode("\n\n", $parts);
     }
 
     private function buildUserInput(string $msg, ?string $mood, array $recentMoods): string

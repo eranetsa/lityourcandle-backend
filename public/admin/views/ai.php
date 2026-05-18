@@ -110,6 +110,67 @@
 </div>
 
 <div class="card">
+  <h2 style="margin-top:0;">مراجع شمعة AI</h2>
+  <p style="color:var(--text-muted); margin:0 0 12px;">
+    ارفع ملفات نصية ‎(.txt أو .md)‎ ستُضاف تلقائياً إلى تعليمات الذكاء الاصطناعي
+    في كل محادثة، فيستند إليها قبل معرفته العامة. الحد الأقصى ٢ ميجابايت للملف،
+    وإجمالي النصوص المُحقَن في البرومبت لا يتجاوز ٦٠ ألف حرف.
+  </p>
+  <?php if (!empty($refError)): ?>
+    <div class="flash flash-error"><?= htmlspecialchars($refError) ?></div>
+  <?php endif; ?>
+
+  <form method="post" enctype="multipart/form-data" action="?action=ai" style="margin-bottom:18px;">
+    <input type="hidden" name="csrf" value="<?= htmlspecialchars(csrf()) ?>">
+    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+      <input type="file" name="ref" accept=".txt,.md,text/plain,text/markdown" required>
+      <button type="submit" name="op" value="upload_reference" class="btn">رفع المرجع</button>
+    </div>
+  </form>
+
+  <?php if (empty($references)): ?>
+    <p style="color:var(--text-muted); text-align:center; padding:18px 0;">
+      لم يتم رفع أي مرجع بعد.
+    </p>
+  <?php else: ?>
+  <table>
+    <thead><tr><th>#</th><th>الملف</th><th>النوع</th><th>الحجم</th><th>الحالة</th><th>تاريخ الرفع</th><th>إجراء</th></tr></thead>
+    <tbody>
+      <?php foreach ($references as $r): ?>
+      <tr>
+        <td><?= (int)$r['id'] ?></td>
+        <td><?= htmlspecialchars((string)$r['original_name']) ?></td>
+        <td><?= htmlspecialchars((string)$r['mime']) ?></td>
+        <td><?= number_format((int)$r['size_bytes'] / 1024, 1) ?> KB</td>
+        <td>
+          <span class="badge <?= $r['is_active'] ? 'b-active' : 'b-mute' ?>">
+            <?= $r['is_active'] ? 'مفعّل' : 'موقوف' ?>
+          </span>
+        </td>
+        <td style="color:var(--text-muted); font-size:12px;"><?= htmlspecialchars((string)$r['created_at']) ?></td>
+        <td style="display:flex; gap:6px;">
+          <form method="post" action="?action=ai" class="inline">
+            <input type="hidden" name="csrf" value="<?= htmlspecialchars(csrf()) ?>">
+            <input type="hidden" name="id" value="<?= (int)$r['id'] ?>">
+            <button type="submit" name="op" value="toggle_reference" class="btn-ghost btn-sm">
+              <?= $r['is_active'] ? 'إيقاف' : 'تفعيل' ?>
+            </button>
+          </form>
+          <form method="post" action="?action=ai" class="inline"
+                onsubmit="return confirm('حذف المرجع نهائياً؟');">
+            <input type="hidden" name="csrf" value="<?= htmlspecialchars(csrf()) ?>">
+            <input type="hidden" name="id" value="<?= (int)$r['id'] ?>">
+            <button type="submit" name="op" value="delete_reference" class="btn-danger btn-sm">حذف</button>
+          </form>
+        </td>
+      </tr>
+      <?php endforeach; ?>
+    </tbody>
+  </table>
+  <?php endif; ?>
+</div>
+
+<div class="card">
   <h3>أحدث 50 محادثة</h3>
   <table>
     <thead><tr><th>#</th><th>المستخدم</th><th>المزاج</th><th>الرسالة</th><th>تصعيد؟</th><th>التاريخ</th></tr></thead>

@@ -507,6 +507,7 @@ function mood_analytics(): void
 function ai_analytics(): void
 {
     $saved = false;
+    $refError = null;
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $op = $_POST['op'] ?? '';
@@ -523,6 +524,57 @@ function ai_analytics(): void
         } elseif ($op === 'save_memory_turns') {
             $n = max(0, min(50, (int)($_POST['ai_memory_turns'] ?? 10)));
             Settings::set('ai_memory_turns', (string)$n);
+            $saved = true;
+        } elseif ($op === 'upload_reference') {
+            // Accept .txt and .md only — anything else would need a parser
+            // (PDF/Word) that isn't installed on the server today.
+            $f = $_FILES['ref'] ?? null;
+            if (!$f || ($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+                $refError = 'لم يتم رفع الملف. تأكد من اختياره أولاً.';
+            } else {
+                $name = (string)$f['name'];
+                $ext  = strtolower((string)pathinfo($name, PATHINFO_EXTENSION));
+                $size = (int)($f['size'] ?? 0);
+                if (!in_array($ext, ['txt', 'md'], true)) {
+                    $refError = 'النوع غير مدعوم. ارفع ملف ‎.txt أو ‎.md فقط.';
+                } elseif ($size > 2 * 1024 * 1024) {
+                    $refError = 'الحجم الأقصى ٢ ميجابايت.';
+                } else {
+                    $text = (string)@file_get_contents($f['tmp_name']);
+                    if ($text === '') {
+                        $refError = 'تعذّر قراءة محتوى الملف.';
+                    } else {
+                        $dir = dirname(__DIR__, 2) . '/storage/ai-references';
+                        if (!is_dir($dir)) @mkdir($dir, 0750, true);
+                        $stored = bin2hex(random_bytes(8)) . '.' . $ext;
+                        $path = $dir . '/' . $stored;
+                        @file_put_contents($path, $text);
+                        @chmod($path, 0640);
+                        DB::insert('ai_references', [
+                            'original_name'  => $name,
+                            'storage_path'   => 'storage/ai-references/' . $stored,
+                            'mime'           => $ext === 'md' ? 'text/markdown' : 'text/plain',
+                            'size_bytes'     => $size,
+                            'extracted_text' => $text,
+                            'is_active'      => 1,
+                            'sort_order'     => 0,
+                        ]);
+                        $saved = true;
+                    }
+                }
+            }
+        } elseif ($op === 'toggle_reference') {
+            $id = (int)($_POST['id'] ?? 0);
+            DB::run('UPDATE ai_references SET is_active = 1 - is_active WHERE id = :id', [':id' => $id]);
+            $saved = true;
+        } elseif ($op === 'delete_reference') {
+            $id = (int)($_POST['id'] ?? 0);
+            $row = DB::one('SELECT storage_path FROM ai_references WHERE id = :id', [':id' => $id]);
+            if ($row) {
+                $abs = dirname(__DIR__, 2) . '/' . (string)$row['storage_path'];
+                @unlink($abs);
+                DB::run('DELETE FROM ai_references WHERE id = :id', [':id' => $id]);
+            }
             $saved = true;
         }
     }
@@ -552,6 +604,17 @@ function ai_analytics(): void
         'ready'    => $aiKey !== '' && \App\Core\App::config('ai.provider') === 'anthropic',
     ];
 
+    $references = [];
+    try {
+        $references = DB::all(
+            'SELECT id, original_name, mime, size_bytes, is_active, created_at
+               FROM ai_references
+              ORDER BY sort_order ASC, id DESC'
+        );
+    } catch (\Throwable $e) {
+        // Migration not run yet — show empty list, the view will hint.
+    }
+
     render('ai', [
         'stats'         => $stats,
         'latest'        => $latest,
@@ -561,6 +624,8 @@ function ai_analytics(): void
         'aiCfg'         => $aiCfg,
         'aiFreeLimit'   => $aiFreeLimit,
         'aiMemoryTurns' => $aiMemoryTurns,
+        'references'    => $references,
+        'refError'      => $refError,
     ]);
 }
 
