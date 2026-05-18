@@ -4,6 +4,32 @@
 /** @var array $aiDays */
 /** @var array $sessions */
 
+$moodEntries = $moodEntries ?? [];
+$moodCounts  = $moodCounts  ?? [];
+$moodLabel = [
+  'happy'    => 'سعيد',
+  'calm'     => 'هادئ',
+  'neutral'  => 'عادي',
+  'anxious'  => 'قلِق',
+  'sad'      => 'حزين',
+];
+$moodEmoji = [
+  'happy'    => '😊',
+  'calm'     => '😌',
+  'neutral'  => '🙂',
+  'anxious'  => '😟',
+  'sad'      => '😢',
+];
+$moodColor = [
+  'happy'    => 'rgba(34,197,94,0.15)',
+  'calm'     => 'rgba(56,189,248,0.15)',
+  'neutral'  => 'rgba(255,255,255,0.06)',
+  'anxious'  => 'rgba(255,184,0,0.15)',
+  'sad'      => 'rgba(239,68,68,0.15)',
+];
+// Latest mood = first row (sorted DESC).
+$latestMood = $moodEntries[0]['mood'] ?? null;
+
 $planBadge = static function (?string $plan): string {
   if ($plan === 'yearly' || $plan === 'lifetime') return 'b-paid';
   if ($plan === 'monthly' || $plan === 'weekly') return 'b-trial';
@@ -90,6 +116,58 @@ $statusBadge = static function (string $status): string {
   </div>
 </div>
 <?php endif; ?>
+
+<div class="card">
+  <h3 style="margin-top:0;">المزاج</h3>
+  <?php if (empty($moodEntries)): ?>
+    <p style="color:var(--text-muted); text-align:center; padding:14px 0;">
+      لم يسجّل هذا المستخدم أي حالة مزاج بعد.
+    </p>
+  <?php else: ?>
+    <!-- Header row: current mood + 30-day count chips -->
+    <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:14px;">
+      <?php if ($latestMood): ?>
+        <div style="
+          display:inline-flex; align-items:center; gap:8px;
+          padding:8px 14px; border-radius:12px;
+          background:<?= $moodColor[$latestMood] ?? 'var(--surface-2)' ?>;
+          border:1px solid var(--border-soft);">
+          <span style="font-size:22px;"><?= $moodEmoji[$latestMood] ?? '🙂' ?></span>
+          <div>
+            <div style="font-size:11px; color:var(--text-muted);">آخر حالة</div>
+            <strong><?= $moodLabel[$latestMood] ?? $latestMood ?></strong>
+          </div>
+        </div>
+      <?php endif; ?>
+      <div style="color:var(--text-muted); font-size:12px; align-self:center;">آخر ٣٠ يوماً:</div>
+      <?php foreach ($moodCounts as $c): ?>
+        <span class="badge b-mute" style="background:<?= $moodColor[$c['mood']] ?? 'var(--surface-2)' ?>;">
+          <?= $moodEmoji[$c['mood']] ?? '·' ?>
+          <?= $moodLabel[$c['mood']] ?? $c['mood'] ?>
+          <strong style="margin-inline-start:4px;"><?= (int)$c['n'] ?></strong>
+        </span>
+      <?php endforeach; ?>
+    </div>
+
+    <!-- Recent entries -->
+    <table>
+      <thead><tr><th>اليوم</th><th>الحالة</th><th>ملاحظة</th><th>وقت التسجيل</th></tr></thead>
+      <tbody>
+        <?php foreach ($moodEntries as $m): ?>
+        <tr>
+          <td><?= htmlspecialchars((string)$m['logged_on']) ?></td>
+          <td>
+            <span style="font-size:16px;"><?= $moodEmoji[$m['mood']] ?? '·' ?></span>
+            <span style="margin-inline-start:6px;"><?= $moodLabel[$m['mood']] ?? $m['mood'] ?></span>
+          </td>
+          <td style="max-width:420px; color:var(--text-2);"><?= htmlspecialchars((string)($m['note'] ?? '—')) ?></td>
+          <td style="color:var(--text-muted); font-size:12px;"><?= htmlspecialchars((string)$m['created_at']) ?></td>
+        </tr>
+        <?php endforeach; ?>
+      </tbody>
+    </table>
+  <?php endif; ?>
+</div>
 
 <div class="card">
   <h3 style="margin-top:0;">محادثات شمعة AI (<?= count($aiDays) ?>)</h3>

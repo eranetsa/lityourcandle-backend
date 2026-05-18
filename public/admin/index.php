@@ -293,11 +293,30 @@ function user_detail(): void
         [':uid' => $uid]
     );
 
+    // Mood history — latest 60 daily entries + per-mood counts over the
+    // last 30 days for the summary chips at the top of the section.
+    $moodEntries = DB::all(
+        'SELECT mood, note, logged_on, created_at
+           FROM mood_logs
+          WHERE user_id = :uid
+          ORDER BY logged_on DESC LIMIT 60',
+        [':uid' => $uid]
+    );
+    $moodCounts = DB::all(
+        "SELECT mood, COUNT(*) AS n
+           FROM mood_logs
+          WHERE user_id = :uid AND logged_on >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+          GROUP BY mood",
+        [':uid' => $uid]
+    );
+
     render('user_detail', [
         'user'         => $user,
         'subscription' => $subscription,
         'aiDays'       => $aiDays,
         'sessions'     => $sessions,
+        'moodEntries'  => $moodEntries,
+        'moodCounts'   => $moodCounts,
     ]);
 }
 
