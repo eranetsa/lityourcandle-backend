@@ -148,6 +148,13 @@ function users_index(): void
     $plan       = (string)($_GET['plan']       ?? '');
     $subStatus  = (string)($_GET['sub_status'] ?? '');
     $role       = (string)($_GET['role']       ?? '');
+    // sort: last_active (default) | id   ;  dir: desc (default) | asc
+    $sort       = (string)($_GET['sort']       ?? 'last_active');
+    $dir        = strtolower((string)($_GET['dir'] ?? 'desc')) === 'asc' ? 'asc' : 'desc';
+    if (!in_array($sort, ['last_active', 'id'], true)) $sort = 'last_active';
+    $orderBy = $sort === 'id'
+        ? "u.id $dir"
+        : "last_active_at $dir, u.id DESC";
 
     $where  = ['1=1'];
     $params = [];
@@ -208,7 +215,7 @@ function users_index(): void
          FROM users u
          LEFT JOIN subscriptions s ON s.id = (SELECT MAX(id) FROM subscriptions WHERE user_id = u.id)
          $whereSql
-         ORDER BY u.id DESC LIMIT 200",
+         ORDER BY $orderBy LIMIT 200",
         $params
     );
 
@@ -220,6 +227,8 @@ function users_index(): void
         'filterSubStatus'   => $subStatus,
         'filterRole'        => $role,
         'counts'            => $counts,
+        'sort'              => $sort,
+        'dir'               => $dir,
     ]);
 }
 

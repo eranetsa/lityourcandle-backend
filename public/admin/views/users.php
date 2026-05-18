@@ -4,6 +4,24 @@ $filterPlan      = $filterPlan      ?? '';
 $filterSubStatus = $filterSubStatus ?? '';
 $filterRole      = $filterRole      ?? '';
 $counts          = $counts          ?? ['total' => 0, 'subscribed' => 0, 'free' => 0, 'inactive' => 0, 'guest' => 0];
+$sort            = $sort            ?? 'last_active';
+$dir             = $dir             ?? 'desc';
+
+// Build a sort link for the column header. Preserves every other
+// filter; toggles direction when the same column is clicked again.
+$sortHref = function (string $col) use ($sort, $dir, $tab, $q, $filterPlan, $filterSubStatus, $filterRole): string {
+  $nextDir = ($sort === $col && $dir === 'desc') ? 'asc' : 'desc';
+  $qs = ['action' => 'users', 'tab' => $tab, 'sort' => $col, 'dir' => $nextDir];
+  if ($q                !== '') $qs['q']          = $q;
+  if ($filterPlan       !== '') $qs['plan']       = $filterPlan;
+  if ($filterSubStatus  !== '') $qs['sub_status'] = $filterSubStatus;
+  if ($filterRole       !== '') $qs['role']       = $filterRole;
+  return '?' . http_build_query($qs);
+};
+$sortArrow = function (string $col) use ($sort, $dir): string {
+  if ($sort !== $col) return '';
+  return $dir === 'asc' ? ' ▲' : ' ▼';
+};
 
 // Relative-time formatter for the "آخر نشاط" column. Returns "—" for
 // the epoch fallback we inject in the SQL when both timestamps are NULL.
@@ -19,12 +37,14 @@ $relTime = static function (?string $ts): string {
   return date('Y-m-d', $t);
 };
 
-$tabHref = function (string $key) use ($q, $filterPlan, $filterSubStatus, $filterRole): string {
+$tabHref = function (string $key) use ($q, $filterPlan, $filterSubStatus, $filterRole, $sort, $dir): string {
   $qs = ['action' => 'users', 'tab' => $key];
   if ($q                !== '') $qs['q']          = $q;
   if ($filterPlan       !== '') $qs['plan']       = $filterPlan;
   if ($filterSubStatus  !== '') $qs['sub_status'] = $filterSubStatus;
   if ($filterRole       !== '') $qs['role']       = $filterRole;
+  if ($sort !== 'last_active') $qs['sort']        = $sort;
+  if ($dir  !== 'desc')        $qs['dir']         = $dir;
   return '?' . http_build_query($qs);
 };
 ?>
@@ -96,7 +116,20 @@ $tabHref = function (string $key) use ($q, $filterPlan, $filterSubStatus, $filte
     </p>
   <?php else: ?>
   <table>
-    <thead><tr><th>#</th><th>الاسم</th><th>البريد</th><th>الجوال</th><th>الباقة</th><th>الحالة</th><th>آخر نشاط</th><th>إجراء</th></tr></thead>
+    <thead><tr>
+      <th>
+        <a href="<?= htmlspecialchars($sortHref('id')) ?>" style="color:inherit;">#<?= $sortArrow('id') ?></a>
+      </th>
+      <th>الاسم</th>
+      <th>البريد</th>
+      <th>الجوال</th>
+      <th>الباقة</th>
+      <th>الحالة</th>
+      <th>
+        <a href="<?= htmlspecialchars($sortHref('last_active')) ?>" style="color:inherit;">آخر نشاط<?= $sortArrow('last_active') ?></a>
+      </th>
+      <th>إجراء</th>
+    </tr></thead>
     <tbody>
       <?php foreach ($rows as $r):
         $statusBadge = $r['sub_status'] === 'trial' ? 'b-trial'
