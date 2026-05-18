@@ -39,9 +39,16 @@ return [
         'app_certificate' => $_ENV['AGORA_APP_CERTIFICATE'] ?? '',
     ],
     'ai' => [
-        'provider' => $_ENV['AI_PROVIDER'] ?? 'anthropic',
-        'anthropic_key'   => $_ENV['ANTHROPIC_API_KEY'] ?? '',
-        'anthropic_model' => $_ENV['ANTHROPIC_MODEL'] ?? 'claude-haiku-4-5-20251001',
+        // Default provider + keys baked from .env. The admin panel can
+        // override the provider + active key per-installation via the
+        // `ai_provider` / `ai_*_key` settings rows, so production can
+        // flip between Anthropic direct and OpenRouter without a
+        // redeploy.
+        'provider'         => $_ENV['AI_PROVIDER'] ?? 'anthropic',
+        'anthropic_key'    => $_ENV['ANTHROPIC_API_KEY'] ?? '',
+        'anthropic_model'  => $_ENV['ANTHROPIC_MODEL'] ?? 'claude-haiku-4-5-20251001',
+        'openrouter_key'   => $_ENV['OPENROUTER_API_KEY'] ?? '',
+        'openrouter_model' => $_ENV['OPENROUTER_MODEL'] ?? 'openai/gpt-4o-mini',
     ],
     'push' => [
         // Legacy FCM server key — Google disabled the `fcm/send` endpoint

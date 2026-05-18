@@ -525,6 +525,34 @@ function ai_analytics(): void
             $n = max(0, min(50, (int)($_POST['ai_memory_turns'] ?? 10)));
             Settings::set('ai_memory_turns', (string)$n);
             $saved = true;
+        } elseif ($op === 'save_provider') {
+            // Allow flipping provider + per-provider keys + models without
+            // a redeploy. We persist the keys to the settings table so
+            // .env stays untouched; the service reads Settings first, then
+            // falls back to .env on miss.
+            $provider = (string)($_POST['ai_provider'] ?? 'anthropic');
+            if (!in_array($provider, ['anthropic', 'openrouter'], true)) {
+                $provider = 'anthropic';
+            }
+            Settings::set('ai_provider', $provider);
+            // Only overwrite a key when the admin actually typed something —
+            // empty inputs in either box must NOT wipe out the existing
+            // value so the form is safe to save with the keys hidden.
+            $anthropicKey = trim((string)($_POST['ai_anthropic_key'] ?? ''));
+            if ($anthropicKey !== '') Settings::set('ai_anthropic_key', $anthropicKey);
+            $orKey = trim((string)($_POST['ai_openrouter_key'] ?? ''));
+            if ($orKey !== '') Settings::set('ai_openrouter_key', $orKey);
+            $anthropicModel = trim((string)($_POST['ai_anthropic_model'] ?? ''));
+            if ($anthropicModel !== '') Settings::set('ai_anthropic_model', $anthropicModel);
+            $orModel = trim((string)($_POST['ai_openrouter_model'] ?? ''));
+            if ($orModel !== '') Settings::set('ai_openrouter_model', $orModel);
+            $saved = true;
+        } elseif ($op === 'clear_anthropic_key') {
+            Settings::set('ai_anthropic_key', '');
+            $saved = true;
+        } elseif ($op === 'clear_openrouter_key') {
+            Settings::set('ai_openrouter_key', '');
+            $saved = true;
         } elseif ($op === 'upload_reference') {
             // Accept .txt and .md only — anything else would need a parser
             // (PDF/Word) that isn't installed on the server today.
@@ -581,6 +609,15 @@ function ai_analytics(): void
     $aiFreeLimit  = (int)(Settings::get('ai_free_daily_limit', '3')  ?? 3);
     $aiMemoryTurns = (int)(Settings::get('ai_memory_turns',    '10') ?? 10);
 
+    // Effective provider config (Settings overrides .env). The keys
+    // themselves are NOT passed to the view — only a boolean "is set"
+    // flag — so we don't leak them into HTML even via view caching.
+    $effectiveProvider = (string)(Settings::get('ai_provider') ?: \App\Core\App::config('ai.provider'));
+    $effectiveAnthKey  = (string)(Settings::get('ai_anthropic_key') ?: \App\Core\App::config('ai.anthropic_key'));
+    $effectiveOrKey    = (string)(Settings::get('ai_openrouter_key') ?: \App\Core\App::config('ai.openrouter_key'));
+    $effectiveAnthModel = (string)(Settings::get('ai_anthropic_model') ?: \App\Core\App::config('ai.anthropic_model'));
+    $effectiveOrModel   = (string)(Settings::get('ai_openrouter_model') ?: \App\Core\App::config('ai.openrouter_model'));
+
     $stats = DB::one(
         "SELECT COUNT(*) AS total,
                 SUM(escalated) AS escalated,
@@ -596,12 +633,13 @@ function ai_analytics(): void
     // AI provider readiness — when this is "ready=false" every reply is
     // the static fallback regardless of the prompt above, which is what
     // surfaced as "AI keeps repeating itself" in production.
-    $aiKey = (string)\App\Core\App::config('ai.anthropic_key');
+    $providerKey = $effectiveProvider === 'openrouter' ? $effectiveOrKey : $effectiveAnthKey;
+    $providerModel = $effectiveProvider === 'openrouter' ? $effectiveOrModel : $effectiveAnthModel;
     $aiCfg = [
-        'provider' => (string)\App\Core\App::config('ai.provider'),
-        'model'    => (string)\App\Core\App::config('ai.anthropic_model'),
-        'has_key'  => $aiKey !== '',
-        'ready'    => $aiKey !== '' && \App\Core\App::config('ai.provider') === 'anthropic',
+        'provider' => $effectiveProvider,
+        'model'    => $providerModel,
+        'has_key'  => $providerKey !== '',
+        'ready'    => $providerKey !== '' && in_array($effectiveProvider, ['anthropic','openrouter'], true),
     ];
 
     $references = [];
@@ -626,6 +664,13 @@ function ai_analytics(): void
         'aiMemoryTurns' => $aiMemoryTurns,
         'references'    => $references,
         'refError'      => $refError,
+        // Provider settings (keys are surfaced as booleans only — the
+        // actual secret never lands in the rendered HTML).
+        'effectiveProvider'    => $effectiveProvider,
+        'hasAnthropicKey'      => $effectiveAnthKey  !== '',
+        'hasOpenRouterKey'     => $effectiveOrKey    !== '',
+        'effectiveAnthModel'   => $effectiveAnthModel,
+        'effectiveOrModel'     => $effectiveOrModel,
     ]);
 }
 

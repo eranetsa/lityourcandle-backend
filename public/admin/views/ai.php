@@ -78,6 +78,79 @@
 </div>
 
 <div class="card">
+  <h2 style="margin-top:0;">مزوّد الذكاء الاصطناعي</h2>
+  <p style="color:var(--text-muted); margin:0 0 14px;">
+    اختر المزوّد النشط واملأ مفتاحه. المفاتيح تُخزَّن مشفّرة في قاعدة البيانات
+    ولن تظهر مجدداً بعد الحفظ — اتركها فارغة عند الحفظ للاحتفاظ بالقيمة السابقة.
+  </p>
+  <form method="post" action="?action=ai" autocomplete="off">
+    <input type="hidden" name="csrf" value="<?= htmlspecialchars(csrf()) ?>">
+
+    <div style="display:flex; gap:18px; flex-wrap:wrap; margin-bottom:14px;">
+      <label style="display:inline-flex; align-items:center; gap:8px;">
+        <input type="radio" name="ai_provider" value="anthropic"
+          <?= ($effectiveProvider ?? 'anthropic') === 'anthropic' ? 'checked' : '' ?>>
+        <span>Anthropic (Claude مباشرة)</span>
+      </label>
+      <label style="display:inline-flex; align-items:center; gap:8px;">
+        <input type="radio" name="ai_provider" value="openrouter"
+          <?= ($effectiveProvider ?? '') === 'openrouter' ? 'checked' : '' ?>>
+        <span>OpenRouter (يدعم OpenAI / Claude / Google / Meta …)</span>
+      </label>
+    </div>
+
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:14px;">
+      <div>
+        <label style="display:block; color:var(--text-muted); font-size:13px; margin-bottom:6px;">
+          مفتاح Anthropic
+          <?php if (!empty($hasAnthropicKey)): ?>
+            <span style="color:#4ade80;">✓ محفوظ</span>
+          <?php else: ?>
+            <span style="color:#f87171;">غير مضبوط</span>
+          <?php endif; ?>
+        </label>
+        <input type="password" name="ai_anthropic_key"
+               placeholder="<?= !empty($hasAnthropicKey) ? '••••••••  (اتركه فارغاً للإبقاء)' : 'sk-ant-…' ?>"
+               autocomplete="new-password">
+        <label style="display:block; color:var(--text-muted); font-size:13px; margin:10px 0 6px;">موديل Anthropic</label>
+        <input type="text" name="ai_anthropic_model"
+               value="<?= htmlspecialchars($effectiveAnthModel ?? '') ?>"
+               placeholder="claude-haiku-4-5-20251001">
+      </div>
+      <div>
+        <label style="display:block; color:var(--text-muted); font-size:13px; margin-bottom:6px;">
+          مفتاح OpenRouter
+          <?php if (!empty($hasOpenRouterKey)): ?>
+            <span style="color:#4ade80;">✓ محفوظ</span>
+          <?php else: ?>
+            <span style="color:#f87171;">غير مضبوط</span>
+          <?php endif; ?>
+        </label>
+        <input type="password" name="ai_openrouter_key"
+               placeholder="<?= !empty($hasOpenRouterKey) ? '••••••••  (اتركه فارغاً للإبقاء)' : 'sk-or-v1-…' ?>"
+               autocomplete="new-password">
+        <label style="display:block; color:var(--text-muted); font-size:13px; margin:10px 0 6px;">موديل OpenRouter</label>
+        <input type="text" name="ai_openrouter_model"
+               value="<?= htmlspecialchars($effectiveOrModel ?? '') ?>"
+               placeholder="openai/gpt-4o-mini">
+        <small style="color:var(--text-muted); display:block; margin-top:6px;">
+          أمثلة: <code>anthropic/claude-3.5-sonnet</code> · <code>openai/gpt-4o-mini</code> ·
+          <code>google/gemini-2.0-flash-001</code>
+        </small>
+      </div>
+    </div>
+
+    <div style="display:flex; gap:10px; margin-top:14px; flex-wrap:wrap;">
+      <button type="submit" name="op" value="save_provider" class="btn">حفظ إعدادات المزوّد</button>
+      <button type="submit" name="op" value="clear_anthropic_key" class="btn-ghost btn-sm"
+        onclick="return confirm('حذف مفتاح Anthropic من الإعدادات؟');">حذف مفتاح Anthropic</button>
+      <button type="submit" name="op" value="clear_openrouter_key" class="btn-ghost btn-sm"
+        onclick="return confirm('حذف مفتاح OpenRouter من الإعدادات؟');">حذف مفتاح OpenRouter</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
   <h3>برومبت شمعة AI (System Prompt)</h3>
   <p style="color:var(--text-muted); margin:0 0 12px;">
     النص الذي يُرسل لـ Claude كـ <code>system</code> في كل طلب AI داخل التطبيق.

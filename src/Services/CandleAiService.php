@@ -27,27 +27,16 @@ final class CandleAiService
      */
     public function generate(string $userMessage, ?string $mood, array $recentMoods, array $history = []): array
     {
-        $key   = (string)App::config('ai.anthropic_key');
-        $model = (string)App::config('ai.anthropic_model');
+        // Admin Settings override the .env defaults so the provider can
+        // be flipped from the panel without a redeploy.
+        $provider = (string)(Settings::get('ai_provider') ?: App::config('ai.provider'));
+        $provider = $provider !== '' ? $provider : 'anthropic';
 
-        if ($key === '' || App::config('ai.provider') !== 'anthropic') {
-            // Surface the silent-fallback path so it shows up in /var/log
-            // and stops looking like "Claude is just unfailingly repeating
-            // itself" in production. Without this the fallback template
-            // looks identical to a real (but very flat) AI reply.
-            Logger::warn('candle_ai_fallback_no_key', [
-                'has_key'  => $key !== '',
-                'provider' => (string)App::config('ai.provider'),
-            ]);
-            return $this->fallback($mood, $recentMoods);
-        }
-
-        $system = $this->systemPrompt();
+        $system    = $this->systemPrompt();
         $userInput = $this->buildUserInput($userMessage, $mood, $recentMoods);
 
-        // Build the messages array from prior turns + the new user input.
-        // Anthropic expects strict alternation, which our (user, assistant)
-        // pairs produce naturally.
+        // Build a generic OpenAI/Anthropic-shaped message list. Each
+        // provider adapter below accepts the same array.
         $messages = [];
         foreach ($history as $turn) {
             $um = trim((string)($turn['user_message'] ?? ''));
@@ -58,6 +47,37 @@ final class CandleAiService
         }
         $messages[] = ['role' => 'user', 'content' => $userInput];
 
+        $result = $provider === 'openrouter'
+            ? $this->callOpenRouter($system, $messages)
+            : $this->callAnthropic($system, $messages);
+
+        if (!$result) {
+            return $this->fallback($mood, $recentMoods);
+        }
+        $json = $this->extractJson($result['text']);
+        if (!$json) {
+            Logger::warn('candle_ai_parse_fail', ['provider' => $provider, 'raw' => $result['text']]);
+            return $this->fallback($mood, $recentMoods);
+        }
+        return [
+            'data'      => $json,
+            'tokens_in' => $result['tokens_in']  ?? null,
+            'tokens_out'=> $result['tokens_out'] ?? null,
+        ];
+    }
+
+    /**
+     * @param array<int,array{role:string,content:string}> $messages
+     * @return ?array{text:string, tokens_in:?int, tokens_out:?int}
+     */
+    private function callAnthropic(string $system, array $messages): ?array
+    {
+        $key   = (string)(Settings::get('ai_anthropic_key') ?: App::config('ai.anthropic_key'));
+        $model = (string)(Settings::get('ai_anthropic_model') ?: App::config('ai.anthropic_model'));
+        if ($key === '') {
+            Logger::warn('candle_ai_fallback_no_key', ['provider' => 'anthropic']);
+            return null;
+        }
         try {
             $client = new Client(['timeout' => 20]);
             $r = $client->post('https://api.anthropic.com/v1/messages', [
@@ -74,20 +94,65 @@ final class CandleAiService
                 ],
             ]);
             $resp = json_decode((string)$r->getBody(), true) ?: [];
-            $text = $resp['content'][0]['text'] ?? '';
-            $json = $this->extractJson($text);
-            if (!$json) {
-                Logger::warn('candle_ai_parse_fail', ['raw' => $text]);
-                return $this->fallback($mood, $recentMoods);
-            }
             return [
-                'data'      => $json,
+                'text'      => (string)($resp['content'][0]['text'] ?? ''),
                 'tokens_in' => $resp['usage']['input_tokens']  ?? null,
                 'tokens_out'=> $resp['usage']['output_tokens'] ?? null,
             ];
         } catch (\Throwable $e) {
-            Logger::error('candle_ai_error', ['msg' => $e->getMessage()]);
-            return $this->fallback($mood, $recentMoods);
+            Logger::error('candle_ai_error', ['provider' => 'anthropic', 'msg' => $e->getMessage()]);
+            return null;
+        }
+    }
+
+    /**
+     * OpenRouter exposes an OpenAI-compatible /chat/completions endpoint
+     * with the system prompt represented as a leading {role:"system"}
+     * message rather than a top-level field. Every other concept maps
+     * one-to-one with the Anthropic path above.
+     *
+     * @param array<int,array{role:string,content:string}> $messages
+     * @return ?array{text:string, tokens_in:?int, tokens_out:?int}
+     */
+    private function callOpenRouter(string $system, array $messages): ?array
+    {
+        $key   = (string)(Settings::get('ai_openrouter_key') ?: App::config('ai.openrouter_key'));
+        $model = (string)(Settings::get('ai_openrouter_model') ?: App::config('ai.openrouter_model'));
+        if ($key === '') {
+            Logger::warn('candle_ai_fallback_no_key', ['provider' => 'openrouter']);
+            return null;
+        }
+        $appUrl = (string)App::config('app.url', 'https://lityourcandle.com');
+        $payloadMessages = array_merge(
+            [['role' => 'system', 'content' => $system]],
+            $messages
+        );
+        try {
+            $client = new Client(['timeout' => 30]);
+            $r = $client->post('https://openrouter.ai/api/v1/chat/completions', [
+                'headers' => [
+                    'Authorization' => 'Bearer ' . $key,
+                    'Content-Type'  => 'application/json',
+                    // OpenRouter asks for these so they can attribute
+                    // traffic and show the app in their dashboard.
+                    'HTTP-Referer'  => $appUrl,
+                    'X-Title'       => 'Lit Your Candle',
+                ],
+                'json' => [
+                    'model'      => $model,
+                    'messages'   => $payloadMessages,
+                    'max_tokens' => 600,
+                ],
+            ]);
+            $resp = json_decode((string)$r->getBody(), true) ?: [];
+            return [
+                'text'      => (string)($resp['choices'][0]['message']['content'] ?? ''),
+                'tokens_in' => $resp['usage']['prompt_tokens']     ?? null,
+                'tokens_out'=> $resp['usage']['completion_tokens'] ?? null,
+            ];
+        } catch (\Throwable $e) {
+            Logger::error('candle_ai_error', ['provider' => 'openrouter', 'msg' => $e->getMessage()]);
+            return null;
         }
     }
 
