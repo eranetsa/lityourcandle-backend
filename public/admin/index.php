@@ -194,8 +194,17 @@ function users_index(): void
          LEFT JOIN subscriptions s ON s.id = (SELECT MAX(id) FROM subscriptions WHERE user_id = u.id)"
     ) ?: ['total' => 0, 'subscribed' => 0, 'free' => 0, 'inactive' => 0, 'guest' => 0];
 
+    // last_active_at = the latest of users.last_login_at and the most
+    // recent push-token heartbeat. push_tokens.last_seen_at is bumped on
+    // every token-refresh API call, so it's a reasonable proxy for "the
+    // app was open recently" even when the user hasn't re-logged in.
     $rows = DB::all(
-        "SELECT u.*, s.plan, s.status AS sub_status, s.expires_at
+        "SELECT u.*, s.plan, s.status AS sub_status, s.expires_at,
+                GREATEST(
+                    COALESCE(u.last_login_at,                                   '1970-01-01'),
+                    COALESCE((SELECT MAX(pt.last_seen_at) FROM push_tokens pt
+                              WHERE pt.user_id = u.id),                         '1970-01-01')
+                ) AS last_active_at
          FROM users u
          LEFT JOIN subscriptions s ON s.id = (SELECT MAX(id) FROM subscriptions WHERE user_id = u.id)
          $whereSql

@@ -5,6 +5,20 @@ $filterSubStatus = $filterSubStatus ?? '';
 $filterRole      = $filterRole      ?? '';
 $counts          = $counts          ?? ['total' => 0, 'subscribed' => 0, 'free' => 0, 'inactive' => 0, 'guest' => 0];
 
+// Relative-time formatter for the "آخر نشاط" column. Returns "—" for
+// the epoch fallback we inject in the SQL when both timestamps are NULL.
+$relTime = static function (?string $ts): string {
+  if (!$ts || str_starts_with((string)$ts, '1970')) return '—';
+  $t = strtotime((string)$ts);
+  if (!$t) return htmlspecialchars((string)$ts);
+  $diff = time() - $t;
+  if ($diff < 60)       return 'الآن';
+  if ($diff < 3600)     return 'منذ ' . (int)floor($diff / 60)   . ' دقيقة';
+  if ($diff < 86400)    return 'منذ ' . (int)floor($diff / 3600) . ' ساعة';
+  if ($diff < 7*86400)  return 'منذ ' . (int)floor($diff / 86400). ' يوم';
+  return date('Y-m-d', $t);
+};
+
 $tabHref = function (string $key) use ($q, $filterPlan, $filterSubStatus, $filterRole): string {
   $qs = ['action' => 'users', 'tab' => $key];
   if ($q                !== '') $qs['q']          = $q;
@@ -82,7 +96,7 @@ $tabHref = function (string $key) use ($q, $filterPlan, $filterSubStatus, $filte
     </p>
   <?php else: ?>
   <table>
-    <thead><tr><th>#</th><th>الاسم</th><th>البريد</th><th>الجوال</th><th>الباقة</th><th>الحالة</th><th>إجراء</th></tr></thead>
+    <thead><tr><th>#</th><th>الاسم</th><th>البريد</th><th>الجوال</th><th>الباقة</th><th>الحالة</th><th>آخر نشاط</th><th>إجراء</th></tr></thead>
     <tbody>
       <?php foreach ($rows as $r):
         $statusBadge = $r['sub_status'] === 'trial' ? 'b-trial'
@@ -101,6 +115,9 @@ $tabHref = function (string $key) use ($q, $filterPlan, $filterSubStatus, $filte
           <?php endif; ?>
         </td>
         <td><span class="badge <?= $r['is_active'] ? 'b-active' : 'b-inactive' ?>"><?= $r['is_active'] ? 'نشط' : 'موقوف' ?></span></td>
+        <td style="color:var(--text-muted); font-size:12px; white-space:nowrap;" title="<?= htmlspecialchars((string)($r['last_active_at'] ?? '')) ?>">
+          <?= $relTime($r['last_active_at'] ?? null) ?>
+        </td>
         <td style="display:flex; gap:6px;">
           <a href="?action=user&amp;id=<?= (int)$r['id'] ?>" class="btn-ghost btn-sm">عرض</a>
           <form method="post" class="inline">
