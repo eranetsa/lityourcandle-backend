@@ -15,6 +15,7 @@ use App\Controllers\PaywallController;
 use App\Controllers\ProgramController;
 use App\Controllers\SubscriptionController;
 use App\Controllers\UserController;
+use App\Controllers\WebhookController;
 use App\Middleware\AuthMiddleware;
 use App\Middleware\RateLimitMiddleware;
 
@@ -96,3 +97,9 @@ $router->post('/api/notifications/{id}/read',[NotificationController::class, 'ma
 // Paywall / exit popup
 $router->post('/api/paywall/check',   [PaywallController::class, 'check'],     [AuthMiddleware::class]);
 $router->get ('/api/exit-popup',      [PaywallController::class, 'exitPopup']);
+
+// External webhooks (no JWT; the controller does constant-time auth).
+// RateLimitMiddleware is deliberately NOT applied — RC may burst-deliver
+// large batches from a small pool of IPs and we don't want to drop events
+// in our own bucket. The shared-secret check is the real gate.
+$router->post('/api/webhooks/revenuecat', [WebhookController::class, 'revenuecat']);

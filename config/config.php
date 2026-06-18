@@ -34,6 +34,26 @@ return [
         'package'      => $_ENV['GOOGLE_PLAY_PACKAGE'] ?? '',
         'service_json' => $_ENV['GOOGLE_SERVICE_ACCOUNT_JSON'] ?? '',
     ],
+    'revenuecat' => [
+        // The verbatim "Authorization" header value we expect on every
+        // webhook POST. Set this in .env to the same string you typed
+        // into the RC dashboard. Either raw "<secret>" or "Bearer <secret>"
+        // is accepted — the controller strips the Bearer prefix from
+        // BOTH sides before the constant-time compare.
+        'webhook_secret' => $_ENV['REVENUECAT_WEBHOOK_SECRET'] ?? '',
+        // Optional environment filter. Empty (default) → accept both
+        // SANDBOX and PRODUCTION events. Set to "PRODUCTION" in live
+        // .env to drop sandbox traffic (e.g. internal TestFlight buys).
+        'allowed_environment' => $_ENV['REVENUECAT_ENV'] ?? '',
+        // Comma-separated SKU prefixes the webhook treats as an extra-
+        // session top-up under NON_RENEWING_PURCHASE. Lets ops add new
+        // SKUs (e.g. "extra_session_sar30_") without a redeploy.
+        'extra_session_sku_prefixes' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', $_ENV['REVENUECAT_EXTRA_SESSION_SKU_PREFIXES']
+                ?? 'session_single_,session_extra_')
+        ))),
+    ],
     'agora' => [
         'app_id'          => $_ENV['AGORA_APP_ID'] ?? '',
         'app_certificate' => $_ENV['AGORA_APP_CERTIFICATE'] ?? '',
