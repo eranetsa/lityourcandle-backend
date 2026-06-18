@@ -12,8 +12,26 @@ final class Subscription
 {
     public static function current(int $userId): ?array
     {
+        // Priority ordering — a user can legitimately have multiple
+        // subscription rows (a default 'free' row from guest-auth plus
+        // a real paid row reassigned by an RC TRANSFER, or a stale
+        // 'expired' row plus a fresh 'active' one). Return whichever
+        // matters most for gating:
+        //   1) paid plans before free
+        //   2) active status before any other status
+        //   3) within those, the row with the latest expires_at wins
+        //   4) latest id as final tiebreaker
         return DB::one(
-            'SELECT * FROM subscriptions WHERE user_id = :uid ORDER BY id DESC LIMIT 1',
+            "SELECT * FROM subscriptions
+              WHERE user_id = :uid
+              ORDER BY
+                  CASE WHEN plan IN ('weekly','monthly','yearly','lifetime') THEN 0 ELSE 1 END ASC,
+                  CASE WHEN status = 'active' THEN 0
+                       WHEN status IN ('trial','grace') THEN 1
+                       ELSE 2 END ASC,
+                  COALESCE(expires_at, '9999-12-31') DESC,
+                  id DESC
+              LIMIT 1",
             [':uid' => $userId]
         );
     }
