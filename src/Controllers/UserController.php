@@ -21,7 +21,7 @@ final class UserController
              FROM users WHERE id = :id', [':id' => $uid]
         );
         $sub = DB::one(
-            'SELECT plan, status, expires_at, trial_ends_at, sessions_remaining, auto_renew
+            'SELECT plan, status, expires_at, trial_ends_at, sessions_remaining, sessions_total, auto_renew
              FROM subscriptions WHERE user_id = :uid ORDER BY id DESC LIMIT 1',
             [':uid' => $uid]
         );
