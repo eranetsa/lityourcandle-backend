@@ -32,6 +32,7 @@ $router->post('/api/auth/guest',    [AuthController::class, 'guest'],    [RateLi
 $router->get ('/api/me',                [UserController::class, 'me'],            [AuthMiddleware::class]);
 $router->put ('/api/me',                [UserController::class, 'update'],        [AuthMiddleware::class]);
 $router->post('/api/me/push-token',     [UserController::class, 'savePushToken'], [AuthMiddleware::class]);
+$router->post('/api/me/sync-rc',        [UserController::class, 'syncRc'],        [AuthMiddleware::class]);
 $router->post('/api/me/change-password',[UserController::class, 'changePassword'],[AuthMiddleware::class]);
 
 // Subscriptions

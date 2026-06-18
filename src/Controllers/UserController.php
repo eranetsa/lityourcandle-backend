@@ -10,6 +10,7 @@ use App\Core\Response;
 use App\Core\Settings;
 use App\Core\Validator;
 use App\Models\Subscription;
+use App\Services\RevenueCatBackfill;
 
 final class UserController
 {
@@ -118,5 +119,36 @@ final class UserController
             'id = :id', [':id' => $req->userId()]
         );
         Response::json(['ok' => true]);
+    }
+
+    /**
+     * Reconcile the caller's subscription state from RevenueCat's REST
+     * snapshot. The app calls this on cold launch and right after every
+     * Purchases.restorePurchases() so the backend never drifts behind RC
+     * — paying customers stop seeing the paywall after restoring on a
+     * new install / new device sharing the same Apple ID.
+     *
+     * Always returns 200 with a small status payload (even on RC errors)
+     * so the client can fold this into a normal startup flow without
+     * special error handling. The actual sync result is logged
+     * server-side.
+     */
+    public function syncRc(Request $req): void
+    {
+        $uid = $req->userId();
+        try {
+            $result = (new RevenueCatBackfill())->syncUser($uid);
+            Response::json([
+                'ok'                  => true,
+                'matched_id'          => $result['matched_id']         ?? null,
+                'active_subs_seen'    => (int)($result['active_subs_seen']  ?? 0),
+                'sub_rows_written'    => (int)($result['sub_rows_written']  ?? 0),
+                'non_sub_credits'     => (int)($result['non_sub_credits']   ?? 0),
+                'error'               => $result['error']              ?? null,
+            ]);
+        } catch (\Throwable $e) {
+            // Never let an RC outage crash the cold-launch flow.
+            Response::json(['ok' => false, 'error' => 'rc_unavailable'], 200);
+        }
     }
 }
