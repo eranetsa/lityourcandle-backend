@@ -5,6 +5,7 @@ use App\Core\App;
 use App\Core\DB;
 use App\Core\Settings;
 use App\Services\CandleAiService;
+use App\Services\RevenueCatBackfill;
 
 require_once dirname(__DIR__, 2) . '/vendor/autoload.php';
 App::boot(dirname(__DIR__, 2));
@@ -84,6 +85,8 @@ switch ($action) {
     case 'dashboard':     dashboard(); break;
     case 'users':         users_index(); break;
     case 'user':          user_detail(); break;
+    case 'sync_user':     sync_user_action(); break;
+    case 'sync_all':      sync_all_action(); break;
     case 'session_transcript': session_transcript(); break;
     case 'consultants':   consultants_index(); break;
     case 'sessions':      sessions_index(); break;
@@ -241,9 +244,14 @@ function user_detail(): void
 {
     $uid = (int)($_GET['id'] ?? 0);
     if ($uid <= 0) { http_response_code(400); exit('bad id'); }
+
+    // RC sync flash (set by sync_user_action() then consumed once).
+    $rcFlash = $_SESSION['flash_rc_sync'] ?? null;
+    unset($_SESSION['flash_rc_sync']);
+
     $user = DB::one(
         'SELECT id, name, email, phone, role, language, avatar_url,
-                is_active, created_at, trial_started_at, trial_ends_at
+                device_id, is_active, created_at, trial_started_at, trial_ends_at
            FROM users WHERE id = :id',
         [':id' => $uid]
     );
@@ -252,7 +260,8 @@ function user_detail(): void
     // Active / most-recent subscription
     $subscription = DB::one(
         'SELECT id, plan, status, store, expires_at,
-                sessions_remaining, sessions_total, auto_renew, created_at
+                sessions_remaining, sessions_total, auto_renew, created_at,
+                last_synced_at
            FROM subscriptions
           WHERE user_id = :uid
           ORDER BY id DESC LIMIT 1',
@@ -317,6 +326,116 @@ function user_detail(): void
         'sessions'     => $sessions,
         'moodEntries'  => $moodEntries,
         'moodCounts'   => $moodCounts,
+        'rcFlash'      => $rcFlash,
+    ]);
+}
+
+/**
+ * POST-only: pull the latest subscriber snapshot from RevenueCat for one
+ * user and apply it to the local subscriptions table. Flashes a one-line
+ * summary into the session so user_detail() can render it. Audit-log
+ * payloads carry only HASHED forms of the matched id, so admin compromise
+ * doesn't leak device-id mappings.
+ */
+function sync_user_action(): void
+{
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        http_response_code(405); exit('POST only');
+    }
+    csrf_check();
+
+    $uid = (int)($_GET['id'] ?? $_POST['id'] ?? 0);
+    if ($uid <= 0) { http_response_code(400); exit('bad id'); }
+
+    try {
+        $res = (new RevenueCatBackfill())->syncUser($uid);
+        $_SESSION['flash_rc_sync'] = $res;
+        $matchedHash = $res['matched_id'] !== null
+            ? substr(hash('sha256', (string)$res['matched_id']), 0, 12) : null;
+        audit('rc_sync_user', 'user', $uid, [
+            'matched_id_hash'  => $matchedHash,
+            'tried_count'      => count($res['tried_ids'] ?? []),
+            'sub_rows_written' => $res['sub_rows_written'],
+            'non_sub_credits'  => $res['non_sub_credits'],
+            'error'            => $res['error'],
+        ]);
+    } catch (\Throwable $e) {
+        $_SESSION['flash_rc_sync'] = [
+            'user_id' => $uid,
+            'error'   => $e->getMessage(),
+        ];
+        audit('rc_sync_user_failed', 'user', $uid, ['msg' => $e->getMessage()]);
+    }
+
+    header("Location: /admin/?action=user&id={$uid}");
+    exit;
+}
+
+/**
+ * Synchronous "sync next N users" page. GET renders a button + the last
+ * batch's result; POST runs one page (default 50, max 200) and redirects
+ * back with the cursor advanced. For sweeping 10K+ users use the CLI:
+ *   php bin/sync_rc_subscribers.php
+ */
+function sync_all_action(): void
+{
+    // PHP-FPM defaults can kill a long sync mid-loop. 50 users at 75ms +
+    // 150ms RC latency ≈ 11s, comfortably under 120s. Bumping just in case.
+    @set_time_limit(180);
+
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        csrf_check();
+        $since = (int)($_POST['since'] ?? 0);
+        $limit = max(1, min(200, (int)($_POST['limit'] ?? 50)));
+
+        // Mutex shared with the CLI sweep: prevents an impatient operator
+        // double-clicking from blowing past RC's 20 req/s rate cap.
+        $lockPath = sys_get_temp_dir() . '/lityc_rc_sync.lock';
+        $lockFp   = fopen($lockPath, 'c');
+        $haveLock = $lockFp !== false && flock($lockFp, LOCK_EX | LOCK_NB);
+        if (!$haveLock) {
+            $_SESSION['flash_rc_sync_all'] = [
+                'error' => 'مزامنة أخرى قيد التشغيل بالفعل — انتظر حتى تنتهي.',
+            ];
+            header('Location: /admin/?action=sync_all'); exit;
+        }
+        try {
+            $res = (new RevenueCatBackfill())->syncAll($since > 0 ? $since : null, $limit);
+            $_SESSION['flash_rc_sync_all'] = $res;
+            audit('rc_sync_all', 'system', null, [
+                'since'         => $since,
+                'limit'         => $limit,
+                'users_checked' => $res['users_checked'],
+                'users_updated' => $res['users_updated'],
+                'errors'        => $res['errors'],
+            ]);
+            $next = $res['last_user_id'] ?? 0;
+            @flock($lockFp, LOCK_UN);
+            @fclose($lockFp);
+            header("Location: /admin/?action=sync_all&since={$next}&limit={$limit}");
+            exit;
+        } catch (\Throwable $e) {
+            @flock($lockFp, LOCK_UN);
+            @fclose($lockFp);
+            $_SESSION['flash_rc_sync_all'] = ['error' => $e->getMessage()];
+            audit('rc_sync_all_failed', 'system', null, ['msg' => $e->getMessage()]);
+            // fall through to render
+        }
+    }
+
+    // GET, or POST that threw and fell through: render with whatever the
+    // session currently holds.
+    $since   = isset($_GET['since']) ? (int)$_GET['since'] : 0;
+    $limit   = isset($_GET['limit']) ? max(1, min(200, (int)$_GET['limit'])) : 50;
+    $lastRun = $_SESSION['flash_rc_sync_all'] ?? null;
+    // Clear flash BEFORE render so a render-time throw doesn't leave it
+    // stuck on subsequent reloads.
+    unset($_SESSION['flash_rc_sync_all']);
+
+    render('sync_all', [
+        'since'   => $since,
+        'limit'   => $limit,
+        'lastRun' => $lastRun,
     ]);
 }
 

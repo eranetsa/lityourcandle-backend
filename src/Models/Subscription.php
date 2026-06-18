@@ -124,6 +124,13 @@ final class Subscription
      *   zero_remaining       bool    — force sessions_remaining = 0 (refund/expire)
      *   force_expires_now    bool    — set expires_at = NOW() (refund/expire)
      *   use_grace_expiration bool    — prefer grace_period_expiration_at_ms
+     *   is_backfill          bool    — REST back-fill path. Writes the
+     *                                  receipt to rc_backfill_receipt
+     *                                  instead of store_latest_receipt
+     *                                  (the latter is sacred — it holds
+     *                                  the real Apple/Play receipt the
+     *                                  webhook delivered) and stamps
+     *                                  last_synced_at = NOW().
      */
     public static function upsertFromRcEvent(int $userId, array $event, array $opts = []): int
     {
@@ -164,15 +171,23 @@ final class Subscription
             );
         }
 
+        $isBackfill = !empty($opts['is_backfill']);
         $data = [
             'user_id'              => $userId,
             'plan'                 => $plan ?? ($existing['plan'] ?? 'free'),
             'store'                => $store !== 'none' ? $store : ($existing['store'] ?? 'none'),
             'store_product_id'     => $productId !== '' ? $productId : ($existing['store_product_id'] ?? null),
             'store_original_tx'    => $originalTx !== '' ? $originalTx : ($existing['store_original_tx'] ?? null),
-            'store_latest_receipt' => self::safeJsonEncode($event),
             'expires_at'           => $expiresAt ?? ($existing['expires_at'] ?? null),
         ];
+        if ($isBackfill) {
+            // Back-fill must NEVER overwrite the real Apple/Play receipt.
+            // Stash the snapshot in a side column and stamp the sync time.
+            $data['rc_backfill_receipt'] = self::safeJsonEncode($event);
+            $data['last_synced_at']      = date('Y-m-d H:i:s');
+        } else {
+            $data['store_latest_receipt'] = self::safeJsonEncode($event);
+        }
 
         if (array_key_exists('status', $opts) && $opts['status'] !== null) {
             $data['status'] = $opts['status'];
@@ -245,23 +260,56 @@ final class Subscription
     /**
      * NON_RENEWING_PURCHASE: one-shot session credit.
      *
-     * Idempotent against replays via a marker row in `transactions` keyed
-     * on store_tx_id = $eventId (RC's event UUID, guaranteed unique).
-     * If the marker exists, this is a re-delivery and we no-op.
+     * Idempotent across BOTH delivery paths (webhook + REST back-fill) via
+     * TWO marker columns on `transactions`:
+     *
+     *   store_tx_id      — primary key. The webhook uses event.id (per-delivery
+     *                      UUID); the REST back-fill uses non_subscriptions.id
+     *                      (RC's stable purchase row id). These are different
+     *                      identifiers for the SAME purchase, so a row may
+     *                      exist under either.
+     *   store_alt_tx_id  — the underlying Apple/Google store_transaction_id
+     *                      (purchase-stable). The webhook reads it from
+     *                      event.transaction_id / store_transaction_identifier
+     *                      and the REST snapshot reads it from
+     *                      non_subscriptions[pid][].store_transaction_id.
+     *                      Both paths write the same value here, so we can
+     *                      detect cross-path duplicates.
+     *
+     * The dedupe SELECT checks both columns; the INSERT writes both. A
+     * webhook-then-backfill (or backfill-then-webhook) ordering both
+     * land on the same store_alt_tx_id and the second call no-ops.
      */
     public static function creditExtraSession(int $userId, array $event, string $eventId): void
     {
-        // Idempotency: if we've already credited for this RC event, bail.
-        $marker = DB::one(
-            "SELECT id FROM transactions
-              WHERE store_tx_id = :tx AND kind = 'extra_session'
-              LIMIT 1",
-            [':tx' => $eventId]
+        // Pull the underlying purchase id for cross-path dedupe. Webhook
+        // and REST snapshots both expose it but under slightly different
+        // keys — try them all.
+        $altTx = (string)(
+            $event['store_transaction_identifier']
+            ?? $event['transaction_id']
+            ?? $event['store_transaction_id']
+            ?? ''
         );
+
+        // Idempotency: have we credited this purchase under EITHER key?
+        $sql    = "SELECT id, store_tx_id, store_alt_tx_id FROM transactions
+                    WHERE kind = 'extra_session'
+                      AND (store_tx_id = :pri";
+        $params = [':pri' => $eventId];
+        if ($altTx !== '') {
+            $sql .= " OR store_tx_id = :alt OR store_alt_tx_id = :alt2";
+            $params[':alt']  = $altTx;
+            $params[':alt2'] = $altTx;
+        }
+        $sql .= ') LIMIT 1';
+        $marker = DB::one($sql, $params);
         if ($marker) {
             Logger::info('rc_extra_session_already_credited', [
                 'user_id'  => $userId,
                 'event_id' => $eventId,
+                'alt_tx'   => $altTx !== '' ? substr(hash('sha256', $altTx), 0, 12) : null,
+                'hit_via'  => $marker['store_tx_id'] === $eventId ? 'primary' : 'alt',
             ]);
             return;
         }
@@ -301,14 +349,15 @@ final class Subscription
 
         // Idempotency marker (the transactions row also doubles as audit).
         DB::insert('transactions', [
-            'user_id'       => $userId,
-            'kind'          => 'extra_session',
-            'amount'        => 0.00, // price unknown at webhook time
-            'currency'      => 'SAR',
-            'store'         => $txStore,
-            'store_tx_id'   => $eventId,
-            'status'        => 'succeeded',
-            'metadata_json' => self::safeJsonEncode($event),
+            'user_id'         => $userId,
+            'kind'            => 'extra_session',
+            'amount'          => 0.00, // price unknown at webhook time
+            'currency'        => 'SAR',
+            'store'           => $txStore,
+            'store_tx_id'     => $eventId,
+            'store_alt_tx_id' => $altTx !== '' ? $altTx : null,
+            'status'          => 'succeeded',
+            'metadata_json'   => self::safeJsonEncode($event),
         ]);
 
         Logger::info('rc_extra_session_credited', [

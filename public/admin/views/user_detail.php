@@ -3,7 +3,9 @@
 /** @var ?array $subscription */
 /** @var array $aiDays */
 /** @var array $sessions */
+/** @var ?array $rcFlash */
 
+$rcFlash     = $rcFlash     ?? null;
 $moodEntries = $moodEntries ?? [];
 $moodCounts  = $moodCounts  ?? [];
 $moodLabel = [
@@ -47,6 +49,31 @@ $statusBadge = static function (string $status): string {
 };
 ?>
 
+<?php if ($rcFlash !== null): ?>
+  <?php
+    $isError = !empty($rcFlash['error']);
+    $badge   = $isError ? 'b-inactive' : (!empty($rcFlash['found']) ? 'b-active' : 'b-mute');
+    if ($isError) {
+        $summary = 'فشل المزامنة: ' . htmlspecialchars((string)$rcFlash['error']);
+    } else {
+        $summary = sprintf(
+            'مزامنة RevenueCat — مطابق: %s، اشتراكات نشطة: %d، صفوف محدّثة: %d، أرصدة إضافية: %d%s',
+            htmlspecialchars((string)($rcFlash['matched_id'] ?? '—')),
+            (int)($rcFlash['active_subs_seen'] ?? 0),
+            (int)($rcFlash['sub_rows_written'] ?? 0),
+            (int)($rcFlash['non_sub_credits']  ?? 0),
+            !empty($rcFlash['notes'])
+                ? ' — ' . htmlspecialchars(implode(' / ', (array)$rcFlash['notes']))
+                : ''
+        );
+    }
+  ?>
+  <div class="card" style="padding:10px 14px;">
+    <span class="badge <?= $badge ?>">RC</span>
+    <span style="margin-inline-start:8px;"><?= $summary ?></span>
+  </div>
+<?php endif; ?>
+
 <div class="card">
   <div style="display:flex; align-items:center; gap:14px; margin-bottom:6px; flex-wrap:wrap;">
     <?php if (!empty($user['avatar_url'])): ?>
@@ -58,6 +85,14 @@ $statusBadge = static function (string $status): string {
       <h2 style="margin:0; font-size:20px;"><?= htmlspecialchars((string)$user['name']) ?></h2>
       <div style="color:var(--text-muted); font-size:13px;"><?= htmlspecialchars((string)$user['email']) ?></div>
     </div>
+    <form method="POST"
+          action="/admin/?action=sync_user&amp;id=<?= (int)$user['id'] ?>"
+          style="display:inline;">
+      <input type="hidden" name="csrf" value="<?= csrf() ?>">
+      <button type="submit" class="btn-ghost btn-sm" title="جلب آخر حالة من RevenueCat">
+        ⟳ مزامنة RevenueCat
+      </button>
+    </form>
     <a href="?action=users" class="btn-ghost btn-sm">← قائمة المستخدمين</a>
   </div>
 

@@ -110,6 +110,8 @@ CREATE TABLE subscriptions (
     sessions_remaining  INT UNSIGNED NOT NULL DEFAULT 0,
     created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    last_synced_at      DATETIME DEFAULT NULL,
+    rc_backfill_receipt MEDIUMTEXT DEFAULT NULL,
     PRIMARY KEY (id),
     KEY idx_sub_user (user_id, status),
     KEY idx_sub_expires (expires_at),
@@ -128,12 +130,14 @@ CREATE TABLE transactions (
     currency        VARCHAR(8) NOT NULL DEFAULT 'SAR',
     store           ENUM('apple','google','manual') NOT NULL,
     store_tx_id     VARCHAR(255) DEFAULT NULL,
+    store_alt_tx_id VARCHAR(255) DEFAULT NULL,
     status          ENUM('pending','succeeded','failed','refunded') NOT NULL DEFAULT 'pending',
     metadata_json   JSON DEFAULT NULL,
     created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     KEY idx_tx_user (user_id),
     KEY idx_tx_store_tx (store_tx_id),
+    KEY idx_tx_store_alt_tx (store_alt_tx_id),
     CONSTRAINT fk_tx_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

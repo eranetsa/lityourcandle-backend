@@ -41,6 +41,22 @@ return [
         // is accepted — the controller strips the Bearer prefix from
         // BOTH sides before the constant-time compare.
         'webhook_secret' => $_ENV['REVENUECAT_WEBHOOK_SECRET'] ?? '',
+        // RC v1 REST API "Secret API key" — used by the back-fill /
+        // reconciliation job (src/Services/RevenueCatRestService.php) to
+        // call GET https://api.revenuecat.com/v1/subscribers/{app_user_id}.
+        //
+        // IMPORTANT: this is NOT the same as `webhook_secret` above, and
+        // NOT the public "App-specific" key the mobile SDK uses. Find it
+        // at: RevenueCat dashboard → Project settings → API keys →
+        // "Secret API keys" (sometimes shown as "v1 secret API key").
+        // Pass it raw — the service prepends `Bearer ` itself. Never log
+        // the full value (the service logs only an 8-char sha256 prefix).
+        'secret_api_key' => $_ENV['REVENUECAT_SECRET_KEY'] ?? '',
+        // Base URL — overridable for tests / staging proxy. Default is
+        // the production REST endpoint. RevenueCatRestService validates
+        // the scheme is https and host ends in .revenuecat.com.
+        'rest_base_url'  => $_ENV['REVENUECAT_REST_BASE_URL']
+                            ?? 'https://api.revenuecat.com/v1',
         // Optional environment filter. Empty (default) → accept both
         // SANDBOX and PRODUCTION events. Set to "PRODUCTION" in live
         // .env to drop sandbox traffic (e.g. internal TestFlight buys).
