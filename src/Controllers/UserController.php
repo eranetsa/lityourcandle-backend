@@ -65,6 +65,25 @@ final class UserController
         Response::json(['ok' => true]);
     }
 
+    /**
+     * Persist a push token for the caller.
+     *
+     * Accepts either a plain push token (APNs/FCM/web), a VoIP/PushKit
+     * token alongside it, or both. iOS clients call this endpoint twice
+     * on cold start:
+     *
+     *   1) After getDevicePushTokenAsync — { token, platform: "ios" }
+     *   2) After PushKit register event  — { token, platform: "ios",
+     *                                        voip_token: "<hex>" }
+     *
+     * Both calls land on the same push_tokens row keyed by UNIQUE(token);
+     * the VoIP call's `token` is the same APNs token from step 1.
+     *
+     * The upsert uses COALESCE(VALUES(voip_token), voip_token) so a later
+     * APNs-only call cannot wipe out a previously-saved PushKit token.
+     * Empty strings are normalized to NULL so a missing field never
+     * clobbers existing data.
+     */
     public function savePushToken(Request $req): void
     {
         $data = Validator::check($req->body, [
@@ -74,22 +93,27 @@ final class UserController
             'device_id'  => 'string|max:64',
         ]);
 
-        // Upsert into push_tokens (multi-device). The same token from a
-        // different user just rebinds — UNIQUE(token) takes care of that.
+        $voip = isset($data['voip_token']) ? trim((string)$data['voip_token']) : '';
+        $voipParam = $voip !== '' ? $voip : null;
+
+        // Upsert into push_tokens (multi-device). UNIQUE(token) keys the
+        // row; the same token rebinding to a different user just updates
+        // user_id. COALESCE preserves voip_token when the call doesn't
+        // include one (APNs-only update from step 1 above).
         DB::run(
             'INSERT INTO push_tokens (user_id, token, platform, voip_token, device_id, last_seen_at)
              VALUES (:uid, :tok, :plat, :voip, :did, NOW())
              ON DUPLICATE KEY UPDATE
-                 user_id = VALUES(user_id),
-                 platform = VALUES(platform),
-                 voip_token = VALUES(voip_token),
-                 device_id = VALUES(device_id),
+                 user_id      = VALUES(user_id),
+                 platform     = VALUES(platform),
+                 voip_token   = COALESCE(VALUES(voip_token), voip_token),
+                 device_id    = COALESCE(VALUES(device_id), device_id),
                  last_seen_at = NOW()',
             [
                 ':uid'  => $req->userId(),
                 ':tok'  => $data['token'],
                 ':plat' => $data['platform'],
-                ':voip' => $data['voip_token'] ?? null,
+                ':voip' => $voipParam,
                 ':did'  => $data['device_id'] ?? null,
             ]
         );

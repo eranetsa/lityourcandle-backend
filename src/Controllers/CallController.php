@@ -103,6 +103,11 @@ final class CallController
         // after 45s — we can't wait for the cron tick.
         // PushService recognises kind=incoming_call and applies the ringtone /
         // time-sensitive / high-priority flags for each platform.
+        // Payload includes everything the device-side CallKit /
+        // ConnectionService handler needs to satisfy the iOS 5-second
+        // reportNewIncomingCall contract WITHOUT a network round-trip:
+        // invite_id (also surfaced as `uuid`), session_id, media, caller
+        // name + id, expiry.
         $notifId = DB::insert('notifications', [
             'user_id'      => (int)$sess['user_id'],
             'kind'         => 'incoming_call',
@@ -111,13 +116,17 @@ final class CallController
             'payload_json' => json_encode([
                 'type'       => 'incoming_call',
                 'invite_id'  => $inviteId,
+                'uuid'       => (string)$inviteId,
                 'session_id' => (int)$sess['id'],
                 'media'      => $data['media'],
                 'expires_at' => date('c', strtotime($expiresAt)),
+                'from_id'    => (int)$from['id'],
+                'from_name'  => (string)($from['name'] ?? 'المستشار'),
                 'from'       => [
                     'id'   => (int)$from['id'],
                     'name' => $from['name'],
                 ],
+                'has_video'  => $data['media'] === 'video' ? '1' : '0',
             ], JSON_UNESCAPED_UNICODE),
             'status'       => 'queued',
         ]);
@@ -190,7 +199,16 @@ final class CallController
         Response::json(['ok' => true]);
     }
 
-    /** Caller (consultant) cancels before client responds. POST /api/calls/{invite_id}/cancel */
+    /**
+     * Caller (consultant) cancels before client responds.
+     * POST /api/calls/{invite_id}/cancel
+     *
+     * Sends BOTH a WS frame (fast path when the receiver's app is up) AND a
+     * VoIP/data push with kind=incoming_call_cancelled so a killed device
+     * can dismiss the native CallKit / Telecom ring. Without the push the
+     * OS-level ring keeps going until expiration (iOS: forever until the
+     * user kills the CallKit UI).
+     */
     public function cancel(Request $req): void
     {
         $invite = $this->loadInviteForCaller($req);
@@ -201,6 +219,21 @@ final class CallController
             'invite_id'  => (int)$invite['id'],
             'session_id' => (int)$invite['session_id'],
         ]);
+
+        $notifId = DB::insert('notifications', [
+            'user_id'      => (int)$invite['to_user_id'],
+            'kind'         => 'incoming_call_cancelled',
+            'title'        => 'تم إلغاء المكالمة',
+            'body'         => '',
+            'payload_json' => json_encode([
+                'type'       => 'incoming_call_cancelled',
+                'invite_id'  => (int)$invite['id'],
+                'uuid'       => (string)(int)$invite['id'],
+                'session_id' => (int)$invite['session_id'],
+            ], JSON_UNESCAPED_UNICODE),
+            'status'       => 'queued',
+        ]);
+        try { (new PushService())->send($notifId); } catch (\Throwable $e) { /* best-effort */ }
 
         Response::json(['ok' => true]);
     }
