@@ -20,11 +20,19 @@ final class UserController
             'SELECT id, name, email, phone, language, role, avatar_url, trial_started_at, trial_ends_at, created_at
              FROM users WHERE id = :id', [':id' => $uid]
         );
-        $sub = DB::one(
-            'SELECT plan, status, expires_at, trial_ends_at, sessions_remaining, sessions_total, auto_renew
-             FROM subscriptions WHERE user_id = :uid ORDER BY id DESC LIMIT 1',
-            [':uid' => $uid]
-        );
+        // Route through Subscription::current() so we get the
+        // priority-ordered pick (paid+active beats latest free row
+        // inserted by guest-auth). Then slim down to the client shape.
+        $row = Subscription::current($uid);
+        $sub = $row ? [
+            'plan'               => $row['plan'],
+            'status'             => $row['status'],
+            'expires_at'         => $row['expires_at'] ?? null,
+            'trial_ends_at'      => $row['trial_ends_at'] ?? null,
+            'sessions_remaining' => (int)($row['sessions_remaining'] ?? 0),
+            'sessions_total'     => (int)($row['sessions_total'] ?? 0),
+            'auto_renew'         => (int)($row['auto_renew'] ?? 0),
+        ] : null;
 
         // Surface admin-tunable limits to the client so UI strings (e.g.
         // "remaining today: 4/N") and gating logic match the backend
