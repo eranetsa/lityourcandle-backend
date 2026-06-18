@@ -61,6 +61,12 @@ return [
         // SANDBOX and PRODUCTION events. Set to "PRODUCTION" in live
         // .env to drop sandbox traffic (e.g. internal TestFlight buys).
         'allowed_environment' => $_ENV['REVENUECAT_ENV'] ?? '',
+        // Whether sandbox subscriptions (TestFlight / Play internal track)
+        // count as real for the REST back-fill. Off by default — flipping
+        // this on in production would let a developer's TestFlight purchase
+        // activate premium for a real user. During the beta (when sandbox
+        // IS the real money), set REVENUECAT_ALLOW_SANDBOX=1 in .env.
+        'allow_sandbox' => $_ENV['REVENUECAT_ALLOW_SANDBOX'] ?? '',
         // Comma-separated SKU prefixes the webhook treats as an extra-
         // session top-up under NON_RENEWING_PURCHASE. Lets ops add new
         // SKUs (e.g. "extra_session_sar30_") without a redeploy.

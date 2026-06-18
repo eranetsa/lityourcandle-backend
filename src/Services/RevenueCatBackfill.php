@@ -144,11 +144,36 @@ final class RevenueCatBackfill
                 continue;
             }
             if ($snap !== null) {
-                $snapshot             = $snap;
-                $result['matched_id'] = $appUserId;
-                $result['found']      = true;
-                break;
+                // RC lazy-creates an empty subscriber on any GET against an
+                // ID it has never seen (returns 201 with empty entitlements/
+                // subscriptions/non_subscriptions). Treat such records as
+                // "no data" so the loop falls through to the next candidate
+                // (typically dev_<device_id>) — which is where the real
+                // history lives when the user paid before our backend
+                // started issuing u_<id> form ids to RC.
+                $hasAnyData =
+                    !empty($snap['entitlements']) ||
+                    !empty($snap['subscriptions']) ||
+                    !empty($snap['non_subscriptions']);
+                if ($hasAnyData) {
+                    $snapshot             = $snap;
+                    $result['matched_id'] = $appUserId;
+                    $result['found']      = true;
+                    break;
+                }
+                // Keep iterating; remember we successfully reached RC for
+                // this candidate so the final "no_subscriber_record" note
+                // can still be written if every candidate is empty.
+                if ($snapshot === null) {
+                    $snapshot             = $snap;
+                    $result['matched_id'] = $appUserId;
+                }
             }
+        }
+        // If we ended the loop having only ever seen empty snapshots, treat
+        // it as "no data" so we don't enter the upsert branch.
+        if ($snapshot !== null && empty($result['found'])) {
+            $snapshot = null;
         }
 
         if (!$snapshot) {
@@ -189,8 +214,8 @@ final class RevenueCatBackfill
             $effectiveTs = ($graceTs !== null && ($expTs === null || $graceTs > $expTs))
                 ? $graceTs : $expTs;
 
-            if ($isSandbox)                       { $result['skipped_sandbox']++;       continue; }
-            if ($ownership === 'FAMILY_SHARED')   { $result['skipped_family_shared']++; continue; }
+            if ($isSandbox && !self::allowSandbox()) { $result['skipped_sandbox']++;       continue; }
+            if ($ownership === 'FAMILY_SHARED')      { $result['skipped_family_shared']++; continue; }
             if (!empty($refundedAt))              { $result['skipped_refunded']++;      continue; }
 
             // Lifetime / null-expiry products aren't modelled locally
@@ -300,7 +325,7 @@ final class RevenueCatBackfill
             if (!is_array($purchases)) continue;
             foreach ($purchases as $p) {
                 if (!is_array($p)) continue;
-                if (!empty($p['is_sandbox'])) { $result['skipped_sandbox']++; continue; }
+                if (!empty($p['is_sandbox']) && !self::allowSandbox()) { $result['skipped_sandbox']++; continue; }
                 $rcId = (string)($p['id'] ?? '');
                 if ($rcId === '') continue;
                 // creditExtraSession dedupes on BOTH store_tx_id and the
@@ -473,6 +498,19 @@ final class RevenueCatBackfill
      * naive form as LOCAL time on a TZ-set server — for Asia/Riyadh that's
      * a 3-hour drift vs the webhook's *_ms epoch. We force UTC.
      */
+    /**
+     * Whether sandbox (TestFlight / Play internal) RC subscriptions should
+     * be honoured by the back-fill. Off by default — production data only.
+     * Set REVENUECAT_ALLOW_SANDBOX=1 in .env during beta when real customer
+     * purchases are still living in the sandbox track.
+     */
+    private static function allowSandbox(): bool
+    {
+        $raw = (string)\App\Core\App::config('revenuecat.allow_sandbox', '');
+        if ($raw === '') return false;
+        return filter_var($raw, FILTER_VALIDATE_BOOLEAN);
+    }
+
     private static function isoToEpoch(string $iso): ?int
     {
         try {
