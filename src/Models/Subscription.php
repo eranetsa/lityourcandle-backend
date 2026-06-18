@@ -205,11 +205,13 @@ final class Subscription
         }
 
         // Session credits.
-        //   reset_sessions=true     → fresh allocation at plan total
-        //   new row, no plan match  → 0
-        //   existing row, same plan → keep remaining, top up total
-        //   existing row, downgrade → clamp remaining to new total
-        //   existing row, upgrade   → keep remaining, raise total
+        //   reset_sessions=true       → fresh allocation at plan total
+        //   new row, no plan match    → 0
+        //   existing row, same plan   → preserve remaining as-is
+        //                                (extra-session purchases stay
+        //                                 on top of the plan quota)
+        //   existing row, plan change → clamp remaining to new total
+        //                                (handles downgrades correctly)
         if ($plan && !empty($opts['reset_sessions'])) {
             $data['sessions_total']     = $sessions;
             $data['sessions_remaining'] = $sessions;
@@ -217,10 +219,18 @@ final class Subscription
             $data['sessions_total']     = $sessions;
             $data['sessions_remaining'] = $sessions;
         } elseif ($plan && $existing) {
-            $data['sessions_total']     = $sessions;
-            $current = (int)($existing['sessions_remaining'] ?? 0);
-            // Clamp remaining to new plan total — handles downgrades correctly.
-            $data['sessions_remaining'] = max(0, min($current, $sessions));
+            $data['sessions_total'] = $sessions;
+            $current      = (int)($existing['sessions_remaining'] ?? 0);
+            $existingPlan = (string)($existing['plan'] ?? '');
+            if ($existingPlan === $plan) {
+                // Same plan — preserve remaining untouched so the
+                // user's accumulated extra-session credits survive
+                // every BACKFILL_FROM_SNAPSHOT and RENEWAL refresh.
+                $data['sessions_remaining'] = $current;
+            } else {
+                // Plan changed — clamp for downgrades.
+                $data['sessions_remaining'] = max(0, min($current, $sessions));
+            }
         }
 
         if (!empty($opts['zero_remaining'])) {
