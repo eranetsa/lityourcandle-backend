@@ -224,7 +224,10 @@ final class Subscription
 
         // Session credits.
         //   reset_sessions=true       → fresh allocation at plan total
-        //   new row, no plan match    → 0
+        //   new row, backfill restore → inherit remaining from old user_id
+        //                               (same store_original_tx under different
+        //                               user_id = reinstall / transfer missed)
+        //   new row, fresh purchase   → full allocation at plan total
         //   existing row, same plan   → preserve remaining as-is
         //                                (extra-session purchases stay
         //                                 on top of the plan quota)
@@ -234,8 +237,24 @@ final class Subscription
             $data['sessions_total']     = $sessions;
             $data['sessions_remaining'] = $sessions;
         } elseif ($plan && !$existing) {
-            $data['sessions_total']     = $sessions;
-            $data['sessions_remaining'] = $sessions;
+            $data['sessions_total'] = $sessions;
+            if ($isBackfill && $originalTx !== '' && $store !== 'none') {
+                // Reinstall / missed TRANSFER: same subscription already
+                // existed under another user_id. Carry over whatever credit
+                // remained so the user cannot re-use the same quota.
+                $prevSub = DB::one(
+                    'SELECT sessions_remaining FROM subscriptions
+                      WHERE store = :s AND store_original_tx = :tx
+                        AND user_id != :uid
+                      ORDER BY id DESC LIMIT 1',
+                    [':s' => $store, ':tx' => $originalTx, ':uid' => $userId]
+                );
+                $data['sessions_remaining'] = $prevSub !== null
+                    ? max(0, (int)$prevSub['sessions_remaining'])
+                    : $sessions;
+            } else {
+                $data['sessions_remaining'] = $sessions;
+            }
         } elseif ($plan && $existing) {
             $data['sessions_total'] = $sessions;
             $current      = (int)($existing['sessions_remaining'] ?? 0);
