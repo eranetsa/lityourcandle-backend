@@ -496,6 +496,15 @@ final class PushService
                 'kind'   => $kindForLog,
             ]);
 
+            // Token is permanently invalid — remove from DB so it is never
+            // retried. DeviceTokenNotForTopic happens when a VoIP push token
+            // was stored in the regular token column (old CallKit builds).
+            $staleToken = in_array($reason, ['Unregistered', 'DeviceTokenNotForTopic'], true)
+                || ($code === 410);
+            if ($staleToken) {
+                DB::run('DELETE FROM push_tokens WHERE token = :t', [':t' => $tok]);
+            }
+
             $envMismatch = ($code === 400 && $reason === 'BadDeviceToken')
                 || ($code === 410 && $reason === 'Unregistered');
             if (!$envMismatch || $i === count($hosts) - 1) {
