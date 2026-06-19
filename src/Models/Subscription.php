@@ -346,8 +346,16 @@ final class Subscription
         // `transactions.store` enum has no 'none' — fall back to 'manual'.
         $txStore = in_array($store, ['apple', 'google', 'manual'], true) ? $store : 'manual';
 
+        // Use the same priority as Subscription::current() so the credit
+        // lands on the same row the app reads when checking session balance.
         $sub = DB::one(
-            'SELECT * FROM subscriptions WHERE user_id = :uid ORDER BY id DESC LIMIT 1 FOR UPDATE',
+            'SELECT * FROM subscriptions WHERE user_id = :uid
+             ORDER BY
+                 CASE WHEN plan IN (\'weekly\',\'monthly\',\'yearly\',\'lifetime\') THEN 0 ELSE 1 END,
+                 CASE WHEN status = \'active\' THEN 0 WHEN status IN (\'trial\',\'grace\') THEN 1 ELSE 2 END,
+                 COALESCE(expires_at, \'9999-12-31\') DESC,
+                 id DESC
+             LIMIT 1 FOR UPDATE',
             [':uid' => $userId]
         );
         if ($sub) {
