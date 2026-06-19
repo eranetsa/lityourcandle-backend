@@ -27,6 +27,8 @@ $router->get ('/api/health',  [HealthController::class, 'index']);
 $router->post('/api/auth/register', [AuthController::class, 'register'], [RateLimitMiddleware::class]);
 $router->post('/api/auth/login',    [AuthController::class, 'login'],    [RateLimitMiddleware::class]);
 $router->post('/api/auth/guest',    [AuthController::class, 'guest'],    [RateLimitMiddleware::class]);
+$router->post('/api/auth/apple',    [AuthController::class, 'apple'],    [RateLimitMiddleware::class]);
+$router->post('/api/auth/google',   [AuthController::class, 'google'],   [RateLimitMiddleware::class]);
 
 // Users
 $router->get ('/api/me',                [UserController::class, 'me'],            [AuthMiddleware::class]);
