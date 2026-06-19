@@ -86,11 +86,23 @@ final class BookingController
             }
         }
 
-        $sessionId = DB::transaction(function () use ($uid, $cons, $data, $paidWith, $sub, $allowFree) {
-            // All new bookings are pending until the consultant schedules
-            // them — instant mode is no longer honored. The consultant must
-            // pick a time, and only after they send the first message does
-            // the session become live for the client.
+        // Find the extra_session transaction for this user so we can link it
+        // to the session row — enables accurate refund and purchase auditing.
+        $extraTx = null;
+        if ($paidWith !== 'free') {
+            $extraTx = DB::one(
+                "SELECT t.id FROM transactions t
+                  WHERE t.user_id = :uid AND t.kind = 'extra_session'
+                    AND NOT EXISTS (
+                        SELECT 1 FROM sessions s
+                         WHERE s.transaction_id = t.id AND s.status != 'canceled'
+                    )
+                  ORDER BY t.id DESC LIMIT 1",
+                [':uid' => $uid]
+            );
+        }
+
+        $sessionId = DB::transaction(function () use ($uid, $cons, $data, $paidWith, $sub, $allowFree, $extraTx) {
             $sid = DB::insert('sessions', [
                 'user_id'        => $uid,
                 'consultant_id'  => (int)$cons['id'],
@@ -102,6 +114,7 @@ final class BookingController
                 'pre_issue'      => $data['pre_issue'] ?? null,
                 'pre_ai_summary' => $data['pre_ai_summary'] ?? null,
                 'paid_with'      => $paidWith,
+                'transaction_id' => $extraTx ? (int)$extraTx['id'] : null,
                 'room_token'     => bin2hex(random_bytes(12)),
             ]);
             // Only decrement session credits in real paid mode
@@ -361,13 +374,17 @@ final class BookingController
         $byConsultant = $req->userRole() === 'consultant' || $req->userRole() === 'admin';
         DB::transaction(function () use ($sess) {
             DB::run("UPDATE sessions SET status = 'canceled' WHERE id = :id", [':id' => $sess['id']]);
-            // Refund a session credit only for paid bookings
+            // Refund a session credit only for paid bookings.
+            // Use Subscription::current() to find the same row that would
+            // have been debited, not just the latest by id.
             if ($sess['paid_with'] !== 'free') {
-                DB::run(
-                    'UPDATE subscriptions SET sessions_remaining = sessions_remaining + 1
-                     WHERE user_id = :uid ORDER BY id DESC LIMIT 1',
-                    [':uid' => $sess['user_id']]
-                );
+                $sub = Subscription::current((int)$sess['user_id']);
+                if ($sub) {
+                    DB::run(
+                        'UPDATE subscriptions SET sessions_remaining = sessions_remaining + 1 WHERE id = :id',
+                        [':id' => $sub['id']]
+                    );
+                }
             }
         });
         // Notify the other party so they don't keep waiting
