@@ -374,10 +374,10 @@ final class BookingController
         $byConsultant = $req->userRole() === 'consultant' || $req->userRole() === 'admin';
         DB::transaction(function () use ($sess) {
             DB::run("UPDATE sessions SET status = 'canceled' WHERE id = :id", [':id' => $sess['id']]);
-            // Refund a session credit only for paid bookings.
-            // Use Subscription::current() to find the same row that would
-            // have been debited, not just the latest by id.
-            if ($sess['paid_with'] !== 'free') {
+            // Refund only if the session never actually started (pending /
+            // confirmed). Once in_progress the credit was consumed — no refund.
+            $sessionStarted = $sess['status'] === 'in_progress';
+            if ($sess['paid_with'] !== 'free' && !$sessionStarted) {
                 $sub = Subscription::current((int)$sess['user_id']);
                 if ($sub) {
                     DB::run(
