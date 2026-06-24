@@ -125,10 +125,10 @@ CREATE TABLE subscriptions (
 CREATE TABLE transactions (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     user_id         BIGINT UNSIGNED NOT NULL,
-    kind            ENUM('subscription','extra_session','refund') NOT NULL,
+    kind            ENUM('subscription','extra_session','refund','gift_session') NOT NULL,
     amount          DECIMAL(10,2) NOT NULL,
     currency        VARCHAR(8) NOT NULL DEFAULT 'SAR',
-    store           ENUM('apple','google','manual') NOT NULL,
+    store           ENUM('apple','google','manual','none') NOT NULL,
     store_tx_id     VARCHAR(255) DEFAULT NULL,
     store_alt_tx_id VARCHAR(255) DEFAULT NULL,
     status          ENUM('pending','succeeded','failed','refunded') NOT NULL DEFAULT 'pending',
