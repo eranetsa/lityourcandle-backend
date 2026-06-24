@@ -4,8 +4,10 @@
 /** @var array $aiDays */
 /** @var array $sessions */
 /** @var ?array $rcFlash */
+/** @var ?array $giftFlash */
 
 $rcFlash     = $rcFlash     ?? null;
+$giftFlash   = $giftFlash   ?? null;
 $moodEntries = $moodEntries ?? [];
 $moodCounts  = $moodCounts  ?? [];
 $moodLabel = [
@@ -48,6 +50,17 @@ $statusBadge = static function (string $status): string {
   };
 };
 ?>
+
+<?php if ($giftFlash !== null): ?>
+  <div class="card" style="padding:10px 14px; border-right:3px solid #22c55e;">
+    <span class="badge b-active">✓ تم</span>
+    <span style="margin-inline-start:8px;">
+      تم منح <strong><?= (int)$giftFlash['sessions'] ?></strong>
+      <?= (int)$giftFlash['sessions'] === 1 ? 'جلسة مجانية' : 'جلسات مجانية' ?>
+      بنجاح.
+    </span>
+  </div>
+<?php endif; ?>
 
 <?php if ($rcFlash !== null): ?>
   <?php
@@ -126,7 +139,42 @@ $statusBadge = static function (string $status): string {
 
 <?php if ($subscription): ?>
 <div class="card">
-  <h3 style="margin-top:0;">الاشتراك</h3>
+  <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:14px;">
+    <h3 style="margin:0;">الاشتراك</h3>
+    <button type="button"
+            onclick="document.getElementById('gift-form-<?= (int)$user['id'] ?>').style.display = document.getElementById('gift-form-<?= (int)$user['id'] ?>').style.display === 'none' ? 'flex' : 'none'"
+            class="btn-ghost btn-sm">
+      🎁 منح جلسة مجانية
+    </button>
+  </div>
+
+  <form id="gift-form-<?= (int)$user['id'] ?>"
+        method="POST"
+        action="/admin/?action=gift_session"
+        style="display:none; align-items:flex-end; gap:10px; flex-wrap:wrap;
+               padding:12px 14px; margin-bottom:14px;
+               background:var(--surface-2); border-radius:10px; border:1px solid var(--border-soft);">
+    <input type="hidden" name="csrf" value="<?= csrf() ?>">
+    <input type="hidden" name="user_id" value="<?= (int)$user['id'] ?>">
+    <div>
+      <label style="display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px;">عدد الجلسات</label>
+      <input type="number" name="sessions" value="1" min="1" max="50"
+             style="width:80px; padding:6px 10px; border-radius:8px;
+                    background:var(--surface-1); border:1px solid var(--border-soft);
+                    color:var(--text-1); font-size:14px;">
+    </div>
+    <div style="flex:1; min-width:180px;">
+      <label style="display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px;">ملاحظة (اختياري)</label>
+      <input type="text" name="note" placeholder="مثال: هدية ترحيبية" maxlength="255"
+             style="width:100%; padding:6px 10px; border-radius:8px;
+                    background:var(--surface-1); border:1px solid var(--border-soft);
+                    color:var(--text-1); font-size:14px; box-sizing:border-box;">
+    </div>
+    <button type="submit" class="btn-ghost btn-sm" style="background:rgba(34,197,94,0.12); border-color:rgba(34,197,94,0.4);">
+      ✓ تأكيد المنح
+    </button>
+  </form>
+
   <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:12px;">
     <div>
       <div style="color:var(--text-muted); font-size:12px;">الباقة</div>
@@ -149,6 +197,44 @@ $statusBadge = static function (string $status): string {
       <div><?= (int)$subscription['sessions_remaining'] ?> / <?= (int)$subscription['sessions_total'] ?></div>
     </div>
   </div>
+</div>
+<?php else: ?>
+<div class="card">
+  <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+    <span style="color:var(--text-muted);">لا يوجد اشتراك نشط</span>
+    <button type="button"
+            onclick="document.getElementById('gift-form-<?= (int)$user['id'] ?>').style.display = document.getElementById('gift-form-<?= (int)$user['id'] ?>').style.display === 'none' ? 'flex' : 'none'"
+            class="btn-ghost btn-sm">
+      🎁 منح جلسة مجانية
+    </button>
+  </div>
+
+  <form id="gift-form-<?= (int)$user['id'] ?>"
+        method="POST"
+        action="/admin/?action=gift_session"
+        style="display:none; align-items:flex-end; gap:10px; flex-wrap:wrap;
+               padding:12px 14px; margin-top:12px;
+               background:var(--surface-2); border-radius:10px; border:1px solid var(--border-soft);">
+    <input type="hidden" name="csrf" value="<?= csrf() ?>">
+    <input type="hidden" name="user_id" value="<?= (int)$user['id'] ?>">
+    <div>
+      <label style="display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px;">عدد الجلسات</label>
+      <input type="number" name="sessions" value="1" min="1" max="50"
+             style="width:80px; padding:6px 10px; border-radius:8px;
+                    background:var(--surface-1); border:1px solid var(--border-soft);
+                    color:var(--text-1); font-size:14px;">
+    </div>
+    <div style="flex:1; min-width:180px;">
+      <label style="display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px;">ملاحظة (اختياري)</label>
+      <input type="text" name="note" placeholder="مثال: هدية ترحيبية" maxlength="255"
+             style="width:100%; padding:6px 10px; border-radius:8px;
+                    background:var(--surface-1); border:1px solid var(--border-soft);
+                    color:var(--text-1); font-size:14px; box-sizing:border-box;">
+    </div>
+    <button type="submit" class="btn-ghost btn-sm" style="background:rgba(34,197,94,0.12); border-color:rgba(34,197,94,0.4);">
+      ✓ تأكيد المنح
+    </button>
+  </form>
 </div>
 <?php endif; ?>
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 use App\Core\App;
 use App\Core\DB;
 use App\Core\Settings;
+use App\Models\Subscription;
 use App\Services\CandleAiService;
 use App\Services\RevenueCatBackfill;
 
@@ -86,6 +87,7 @@ switch ($action) {
     case 'users':         users_index(); break;
     case 'user':          user_detail(); break;
     case 'sync_user':     sync_user_action(); break;
+    case 'gift_session':  gift_session_action(); break;
     case 'sync_all':      sync_all_action(); break;
     case 'session_transcript': session_transcript(); break;
     case 'consultants':   consultants_index(); break;
@@ -249,6 +251,10 @@ function user_detail(): void
     $rcFlash = $_SESSION['flash_rc_sync'] ?? null;
     unset($_SESSION['flash_rc_sync']);
 
+    // Gift session flash (set by gift_session_action() then consumed once).
+    $giftFlash = $_SESSION['flash_gift'] ?? null;
+    unset($_SESSION['flash_gift']);
+
     $user = DB::one(
         'SELECT id, name, email, phone, role, language, avatar_url,
                 device_id, is_active, created_at, trial_started_at, trial_ends_at
@@ -327,7 +333,72 @@ function user_detail(): void
         'moodEntries'  => $moodEntries,
         'moodCounts'   => $moodCounts,
         'rcFlash'      => $rcFlash,
+        'giftFlash'    => $giftFlash,
     ]);
+}
+
+/**
+ * POST-only: credit free session(s) to a specific user.
+ * Redirects back to the user detail page with a flash message.
+ */
+function gift_session_action(): void
+{
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        http_response_code(405); exit('POST only');
+    }
+    csrf_check();
+
+    $uid      = (int)($_POST['user_id'] ?? 0);
+    $sessions = max(1, (int)($_POST['sessions'] ?? 1));
+    $note     = trim((string)($_POST['note'] ?? ''));
+
+    if ($uid <= 0) { http_response_code(400); exit('bad user_id'); }
+
+    $user = DB::one('SELECT id FROM users WHERE id = :id', [':id' => $uid]);
+    if (!$user) { http_response_code(404); exit('user not found'); }
+
+    DB::transaction(function () use ($uid, $sessions, $note): void {
+        $sub = Subscription::current($uid);
+        if ($sub) {
+            DB::run(
+                'UPDATE subscriptions SET sessions_remaining = sessions_remaining + :n WHERE id = :id',
+                [':n' => $sessions, ':id' => $sub['id']]
+            );
+            $subId = (int)$sub['id'];
+        } else {
+            $subId = DB::insert('subscriptions', [
+                'user_id'            => $uid,
+                'plan'               => 'gift',
+                'status'             => 'active',
+                'sessions_total'     => $sessions,
+                'sessions_remaining' => $sessions,
+                'store'              => 'none',
+                'created_at'         => date('Y-m-d H:i:s'),
+                'updated_at'         => date('Y-m-d H:i:s'),
+            ]);
+        }
+        DB::insert('transactions', [
+            'user_id'       => $uid,
+            'kind'          => 'gift_session',
+            'amount'        => 0,
+            'currency'      => 'SAR',
+            'store'         => 'none',
+            'store_tx_id'   => null,
+            'status'        => 'succeeded',
+            'metadata_json' => json_encode([
+                'sessions'        => $sessions,
+                'gifted_by_admin' => $_SESSION['admin_id'] ?? null,
+                'note'            => $note ?: null,
+                'subscription_id' => $subId,
+            ], JSON_UNESCAPED_UNICODE),
+        ]);
+    });
+
+    audit('gift_session', 'user', $uid, ['sessions' => $sessions, 'note' => $note]);
+    $_SESSION['flash_gift'] = ['sessions' => $sessions];
+
+    header("Location: /admin/?action=user&id={$uid}");
+    exit;
 }
 
 /**
