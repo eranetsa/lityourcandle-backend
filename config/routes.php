@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 
+use App\Controllers\AdminController;
 use App\Controllers\AiController;
 use App\Controllers\AuthController;
 use App\Controllers\BookingController;
@@ -16,6 +17,7 @@ use App\Controllers\ProgramController;
 use App\Controllers\SubscriptionController;
 use App\Controllers\UserController;
 use App\Controllers\WebhookController;
+use App\Middleware\AdminOnlyMiddleware;
 use App\Middleware\AuthMiddleware;
 use App\Middleware\RateLimitMiddleware;
 
@@ -100,6 +102,9 @@ $router->post('/api/notifications/{id}/read',[NotificationController::class, 'ma
 // Paywall / exit popup
 $router->post('/api/paywall/check',   [PaywallController::class, 'check'],     [AuthMiddleware::class]);
 $router->get ('/api/exit-popup',      [PaywallController::class, 'exitPopup']);
+
+// Admin
+$router->post('/api/admin/gift-session', [AdminController::class, 'giftSession'], [AuthMiddleware::class, AdminOnlyMiddleware::class]);
 
 // External webhooks (no JWT; the controller does constant-time auth).
 // RateLimitMiddleware is deliberately NOT applied — RC may burst-deliver
