@@ -5,11 +5,15 @@
 /** @var array $sessions */
 /** @var ?array $rcFlash */
 /** @var ?array $giftFlash */
+/** @var ?array $openSessionFlash */
+/** @var array $consultants */
 
-$rcFlash     = $rcFlash     ?? null;
-$giftFlash   = $giftFlash   ?? null;
-$moodEntries = $moodEntries ?? [];
-$moodCounts  = $moodCounts  ?? [];
+$rcFlash          = $rcFlash          ?? null;
+$giftFlash        = $giftFlash        ?? null;
+$openSessionFlash = $openSessionFlash ?? null;
+$consultants      = $consultants      ?? [];
+$moodEntries      = $moodEntries      ?? [];
+$moodCounts       = $moodCounts       ?? [];
 $moodLabel = [
   'happy'    => 'سعيد',
   'calm'     => 'هادئ',
@@ -59,6 +63,19 @@ $statusBadge = static function (string $status): string {
       <?= (int)$giftFlash['sessions'] === 1 ? 'جلسة مجانية' : 'جلسات مجانية' ?>
       بنجاح.
     </span>
+  </div>
+<?php endif; ?>
+
+<?php if ($openSessionFlash !== null): ?>
+  <div class="card" style="padding:10px 14px; border-right:3px solid #6366f1;">
+    <span class="badge b-active">✓ تم</span>
+    <span style="margin-inline-start:8px;">
+      تم فتح جلسة #<strong><?= (int)$openSessionFlash['session_id'] ?></strong>
+      مع المستشار <strong><?= htmlspecialchars((string)$openSessionFlash['consultant']) ?></strong>
+      — تم إشعار الطرفين.
+    </span>
+    <a href="?action=session_transcript&id=<?= (int)$openSessionFlash['session_id'] ?>"
+       class="btn-ghost btn-sm" style="margin-inline-start:12px;">عرض الجلسة</a>
   </div>
 <?php endif; ?>
 
@@ -141,11 +158,20 @@ $statusBadge = static function (string $status): string {
 <div class="card">
   <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:14px;">
     <h3 style="margin:0;">الاشتراك</h3>
-    <button type="button"
-            onclick="document.getElementById('gift-form-<?= (int)$user['id'] ?>').style.display = document.getElementById('gift-form-<?= (int)$user['id'] ?>').style.display === 'none' ? 'flex' : 'none'"
-            class="btn-ghost btn-sm">
-      🎁 منح جلسة مجانية
-    </button>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <button type="button"
+              onclick="toggleForm('gift-form-<?= (int)$user['id'] ?>', 'open-session-form-<?= (int)$user['id'] ?>')"
+              class="btn-ghost btn-sm">
+        🎁 منح جلسة مجانية
+      </button>
+      <?php if (!empty($consultants)): ?>
+      <button type="button"
+              onclick="toggleForm('open-session-form-<?= (int)$user['id'] ?>', 'gift-form-<?= (int)$user['id'] ?>')"
+              class="btn-ghost btn-sm" style="background:rgba(99,102,241,0.12); border-color:rgba(99,102,241,0.4);">
+        ▶ فتح جلسة مباشرة
+      </button>
+      <?php endif; ?>
+    </div>
   </div>
 
   <form id="gift-form-<?= (int)$user['id'] ?>"
@@ -175,6 +201,47 @@ $statusBadge = static function (string $status): string {
     </button>
   </form>
 
+  <?php if (!empty($consultants)): ?>
+  <form id="open-session-form-<?= (int)$user['id'] ?>"
+        method="POST"
+        action="/admin/?action=open_session"
+        style="display:none; align-items:flex-end; gap:10px; flex-wrap:wrap;
+               padding:12px 14px; margin-bottom:14px;
+               background:rgba(99,102,241,0.06); border-radius:10px; border:1px solid rgba(99,102,241,0.3);">
+    <input type="hidden" name="csrf" value="<?= csrf() ?>">
+    <input type="hidden" name="user_id" value="<?= (int)$user['id'] ?>">
+    <div style="flex:1; min-width:200px;">
+      <label style="display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px;">المستشار</label>
+      <select name="consultant_id"
+              style="width:100%; padding:6px 10px; border-radius:8px;
+                     background:var(--surface-1); border:1px solid var(--border-soft);
+                     color:var(--text-1); font-size:14px;">
+        <?php foreach ($consultants as $c): ?>
+          <option value="<?= (int)$c['id'] ?>">
+            <?= htmlspecialchars($c['name']) ?>
+            <?= $c['specialty'] ? ' — ' . htmlspecialchars($c['specialty']) : '' ?>
+          </option>
+        <?php endforeach; ?>
+      </select>
+    </div>
+    <div>
+      <label style="display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px;">نوع الجلسة</label>
+      <select name="type"
+              style="padding:6px 10px; border-radius:8px;
+                     background:var(--surface-1); border:1px solid var(--border-soft);
+                     color:var(--text-1); font-size:14px;">
+        <option value="chat">💬 نصي</option>
+        <option value="voice">📞 صوتي</option>
+        <option value="video">📹 مرئي</option>
+      </select>
+    </div>
+    <button type="submit" class="btn-ghost btn-sm"
+            style="background:rgba(99,102,241,0.15); border-color:rgba(99,102,241,0.5);">
+      ▶ فتح الجلسة
+    </button>
+  </form>
+  <?php endif; ?>
+
   <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:12px;">
     <div>
       <div style="color:var(--text-muted); font-size:12px;">الباقة</div>
@@ -202,11 +269,20 @@ $statusBadge = static function (string $status): string {
 <div class="card">
   <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
     <span style="color:var(--text-muted);">لا يوجد اشتراك نشط</span>
-    <button type="button"
-            onclick="document.getElementById('gift-form-<?= (int)$user['id'] ?>').style.display = document.getElementById('gift-form-<?= (int)$user['id'] ?>').style.display === 'none' ? 'flex' : 'none'"
-            class="btn-ghost btn-sm">
-      🎁 منح جلسة مجانية
-    </button>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <button type="button"
+              onclick="toggleForm('gift-form-<?= (int)$user['id'] ?>', 'open-session-form-<?= (int)$user['id'] ?>')"
+              class="btn-ghost btn-sm">
+        🎁 منح جلسة مجانية
+      </button>
+      <?php if (!empty($consultants)): ?>
+      <button type="button"
+              onclick="toggleForm('open-session-form-<?= (int)$user['id'] ?>', 'gift-form-<?= (int)$user['id'] ?>')"
+              class="btn-ghost btn-sm" style="background:rgba(99,102,241,0.12); border-color:rgba(99,102,241,0.4);">
+        ▶ فتح جلسة مباشرة
+      </button>
+      <?php endif; ?>
+    </div>
   </div>
 
   <form id="gift-form-<?= (int)$user['id'] ?>"
@@ -235,8 +311,60 @@ $statusBadge = static function (string $status): string {
       ✓ تأكيد المنح
     </button>
   </form>
+
+  <?php if (!empty($consultants)): ?>
+  <form id="open-session-form-<?= (int)$user['id'] ?>"
+        method="POST"
+        action="/admin/?action=open_session"
+        style="display:none; align-items:flex-end; gap:10px; flex-wrap:wrap;
+               padding:12px 14px; margin-top:12px;
+               background:rgba(99,102,241,0.06); border-radius:10px; border:1px solid rgba(99,102,241,0.3);">
+    <input type="hidden" name="csrf" value="<?= csrf() ?>">
+    <input type="hidden" name="user_id" value="<?= (int)$user['id'] ?>">
+    <div style="flex:1; min-width:200px;">
+      <label style="display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px;">المستشار</label>
+      <select name="consultant_id"
+              style="width:100%; padding:6px 10px; border-radius:8px;
+                     background:var(--surface-1); border:1px solid var(--border-soft);
+                     color:var(--text-1); font-size:14px;">
+        <?php foreach ($consultants as $c): ?>
+          <option value="<?= (int)$c['id'] ?>">
+            <?= htmlspecialchars($c['name']) ?>
+            <?= $c['specialty'] ? ' — ' . htmlspecialchars($c['specialty']) : '' ?>
+          </option>
+        <?php endforeach; ?>
+      </select>
+    </div>
+    <div>
+      <label style="display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px;">نوع الجلسة</label>
+      <select name="type"
+              style="padding:6px 10px; border-radius:8px;
+                     background:var(--surface-1); border:1px solid var(--border-soft);
+                     color:var(--text-1); font-size:14px;">
+        <option value="chat">💬 نصي</option>
+        <option value="voice">📞 صوتي</option>
+        <option value="video">📹 مرئي</option>
+      </select>
+    </div>
+    <button type="submit" class="btn-ghost btn-sm"
+            style="background:rgba(99,102,241,0.15); border-color:rgba(99,102,241,0.5);">
+      ▶ فتح الجلسة
+    </button>
+  </form>
+  <?php endif; ?>
 </div>
 <?php endif; ?>
+
+<script>
+function toggleForm(showId, hideId) {
+  var show = document.getElementById(showId);
+  var hide = document.getElementById(hideId);
+  if (!show) return;
+  var isVisible = show.style.display !== 'none' && show.style.display !== '';
+  if (hide) hide.style.display = 'none';
+  show.style.display = isVisible ? 'none' : 'flex';
+}
+</script>
 
 <div class="card">
   <h3 style="margin-top:0;">المزاج</h3>

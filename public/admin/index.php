@@ -6,6 +6,7 @@ use App\Core\DB;
 use App\Core\Settings;
 use App\Models\Subscription;
 use App\Services\CandleAiService;
+use App\Services\PushService;
 use App\Services\RevenueCatBackfill;
 
 require_once dirname(__DIR__, 2) . '/vendor/autoload.php';
@@ -88,6 +89,7 @@ switch ($action) {
     case 'user':          user_detail(); break;
     case 'sync_user':     sync_user_action(); break;
     case 'gift_session':  gift_session_action(); break;
+    case 'open_session':  open_session_action(); break;
     case 'sync_all':      sync_all_action(); break;
     case 'session_transcript': session_transcript(); break;
     case 'consultants':   consultants_index(); break;
@@ -255,6 +257,10 @@ function user_detail(): void
     $giftFlash = $_SESSION['flash_gift'] ?? null;
     unset($_SESSION['flash_gift']);
 
+    // Open session flash (set by open_session_action() then consumed once).
+    $openSessionFlash = $_SESSION['flash_open_session'] ?? null;
+    unset($_SESSION['flash_open_session']);
+
     $user = DB::one(
         'SELECT id, name, email, phone, role, language, avatar_url,
                 device_id, is_active, created_at, trial_started_at, trial_ends_at
@@ -325,16 +331,101 @@ function user_detail(): void
         [':uid' => $uid]
     );
 
+    $consultants = DB::all(
+        'SELECT id, name, specialty FROM consultants WHERE is_available = 1 ORDER BY name'
+    );
+
     render('user_detail', [
-        'user'         => $user,
-        'subscription' => $subscription,
-        'aiDays'       => $aiDays,
-        'sessions'     => $sessions,
-        'moodEntries'  => $moodEntries,
-        'moodCounts'   => $moodCounts,
-        'rcFlash'      => $rcFlash,
-        'giftFlash'    => $giftFlash,
+        'user'             => $user,
+        'subscription'     => $subscription,
+        'aiDays'           => $aiDays,
+        'sessions'         => $sessions,
+        'moodEntries'      => $moodEntries,
+        'moodCounts'       => $moodCounts,
+        'rcFlash'          => $rcFlash,
+        'giftFlash'        => $giftFlash,
+        'openSessionFlash' => $openSessionFlash,
+        'consultants'      => $consultants,
     ]);
+}
+
+/**
+ * POST-only: open a session directly between a user and a consultant.
+ * Creates the session as 'pending', notifies both parties, then redirects
+ * back to the user detail page with a flash message.
+ */
+function open_session_action(): void
+{
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        http_response_code(405); exit('POST only');
+    }
+    csrf_check();
+
+    $userId       = (int)($_POST['user_id']       ?? 0);
+    $consultantId = (int)($_POST['consultant_id'] ?? 0);
+    $type         = (string)($_POST['type']        ?? 'chat');
+
+    if ($userId <= 0 || $consultantId <= 0) {
+        http_response_code(400); exit('bad params');
+    }
+    if (!in_array($type, ['chat', 'voice', 'video'], true)) $type = 'chat';
+
+    $user = DB::one('SELECT id, name FROM users WHERE id = :id', [':id' => $userId]);
+    if (!$user) { http_response_code(404); exit('user not found'); }
+
+    $consultant = DB::one(
+        'SELECT id, name, user_id FROM consultants WHERE id = :id',
+        [':id' => $consultantId]
+    );
+    if (!$consultant) { http_response_code(404); exit('consultant not found'); }
+
+    $sessionId = DB::transaction(function () use ($userId, $consultantId, $type): int {
+        return DB::insert('sessions', [
+            'user_id'       => $userId,
+            'consultant_id' => $consultantId,
+            'type'          => $type,
+            'mode'          => 'instant',
+            'status'        => 'pending',
+            'paid_with'     => 'free',
+            'room_token'    => bin2hex(random_bytes(12)),
+            'created_at'    => date('Y-m-d H:i:s'),
+            'updated_at'    => date('Y-m-d H:i:s'),
+        ]);
+    });
+
+    // Notify consultant
+    if (!empty($consultant['user_id'])) {
+        $notifId = DB::insert('notifications', [
+            'user_id'      => (int)$consultant['user_id'],
+            'kind'         => 'session_reminder',
+            'title'        => 'جلسة مفتوحة من الإدارة',
+            'body'         => (string)$user['name'] . ' — فتح الإدارة جلسة مباشرة، يرجى قبولها',
+            'payload_json' => json_encode(['session_id' => $sessionId, 'kind' => 'admin_open_session'], JSON_UNESCAPED_UNICODE),
+            'status'       => 'queued',
+        ]);
+        try { (new PushService())->send($notifId); } catch (\Throwable $e) { /* best-effort */ }
+    }
+
+    // Notify client
+    $clientNotifId = DB::insert('notifications', [
+        'user_id'      => $userId,
+        'kind'         => 'session_reminder',
+        'title'        => 'تم فتح جلستك',
+        'body'         => 'الإدارة فتحت جلسة مع ' . (string)$consultant['name'] . '، يمكنك البدء الآن',
+        'payload_json' => json_encode(['session_id' => $sessionId, 'kind' => 'admin_open_session'], JSON_UNESCAPED_UNICODE),
+        'status'       => 'queued',
+    ]);
+    try { (new PushService())->send($clientNotifId); } catch (\Throwable $e) { /* best-effort */ }
+
+    audit('open_session', 'session', $sessionId, [
+        'user_id'       => $userId,
+        'consultant_id' => $consultantId,
+        'type'          => $type,
+    ]);
+    $_SESSION['flash_open_session'] = ['session_id' => $sessionId, 'consultant' => $consultant['name']];
+
+    header("Location: /admin/?action=user&id={$userId}");
+    exit;
 }
 
 /**
