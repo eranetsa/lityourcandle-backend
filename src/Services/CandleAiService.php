@@ -212,10 +212,11 @@ TXT;
      * there's nothing to add so empty installs don't pay an extra
      * query per chat call.
      *
-     * Total reference text is capped at 60_000 chars (≈ 20 KB tokens
-     * post-tokenization on Arabic, comfortably under Claude's context
-     * window even after the conversation history and the model's own
-     * output budget).
+     * Total reference text is capped at 130_000 chars (≈ 50-60k tokens
+     * post-tokenization on Arabic — still well under Claude's context
+     * window after the conversation history and the model's own output
+     * budget, but large enough for the three admin references uploaded
+     * so far; raise deliberately, every chat call pays this in tokens).
      */
     private function referencesBlock(): string
     {
@@ -235,7 +236,7 @@ TXT;
         $parts = ["\n\n=== مراجع لتستند إليها في إجاباتك ===\n"
                 . "النصوص أدناه مرفوعة من إدارة التطبيق وتعتبر مصادر موثوقة. "
                 . "اعتمد عليها أولاً قبل معرفتك العامة، ونوّه للمستخدم لطفاً عندما تستشهد بها."];
-        $remaining = 60000;
+        $remaining = 130000;
         foreach ($rows as $r) {
             $text = trim((string)$r['extracted_text']);
             if ($text === '') continue;
