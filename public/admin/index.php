@@ -98,6 +98,7 @@ switch ($action) {
     case 'transactions':  transactions_index(); break;
     case 'mood':          mood_analytics(); break;
     case 'ai':            ai_analytics(); break;
+    case 'ai_reference':  ai_reference_view(); break;
     case 'ai_users':      ai_users(); break;
     case 'ai_user':       ai_user(); break;
     case 'ai_session':    ai_session(); break;
@@ -987,6 +988,24 @@ function mood_analytics(): void
          GROUP BY logged_on, mood ORDER BY logged_on"
     );
     render('mood', ['byDay' => $byDay]);
+}
+
+/**
+ * Serve a reference file's stored text as inline plain text so the admin
+ * can inspect exactly what gets injected into the AI prompt. Plain text
+ * (never HTML) keeps uploaded content from executing in the admin origin.
+ */
+function ai_reference_view(): void
+{
+    $id  = (int)($_GET['id'] ?? 0);
+    $row = DB::one(
+        'SELECT original_name, extracted_text FROM ai_references WHERE id = :id',
+        [':id' => $id]
+    );
+    if (!$row) { http_response_code(404); echo 'Not found'; return; }
+    header('Content-Type: text/plain; charset=utf-8');
+    header('X-Content-Type-Options: nosniff');
+    echo "# " . (string)$row['original_name'] . "\n\n" . (string)$row['extracted_text'];
 }
 
 function ai_analytics(): void

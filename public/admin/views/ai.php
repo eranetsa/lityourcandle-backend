@@ -222,6 +222,8 @@
         </td>
         <td style="color:var(--text-muted); font-size:12px;"><?= htmlspecialchars((string)$r['created_at']) ?></td>
         <td style="display:flex; gap:6px;">
+          <a href="?action=ai_reference&id=<?= (int)$r['id'] ?>" target="_blank"
+             class="btn-ghost btn-sm" style="text-decoration:none;">استعراض</a>
           <form method="post" action="?action=ai" class="inline">
             <input type="hidden" name="csrf" value="<?= htmlspecialchars(csrf()) ?>">
             <input type="hidden" name="id" value="<?= (int)$r['id'] ?>">

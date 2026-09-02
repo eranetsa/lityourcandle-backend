@@ -167,6 +167,15 @@ final class PushService
         foreach ($merged as $k => $v) {
             $stringData[$k] = is_scalar($v) ? (string)$v : json_encode($v, JSON_UNESCAPED_UNICODE);
         }
+        if (!$isCall && !$isCallCancel) {
+            // expo-notifications (Android) exposes to JS only what it can
+            // JSON-parse from the `body` data key as notification
+            // content.data — individual top-level keys are invisible to the
+            // app. Mirror the payload there so tap handlers can route
+            // (e.g. chat_message → open the session chat). The visible
+            // banner text comes from the `notification` block, not this key.
+            $stringData['body'] = json_encode($data + ['kind' => $kind], JSON_UNESCAPED_UNICODE);
+        }
 
         $message = [
             'token'   => $tok['token'],
@@ -331,9 +340,14 @@ final class PushService
                 $aps['relevance-score']    = 1.0;
             }
 
+            // expo-notifications (iOS) exposes ONLY userInfo['body'] to JS as
+            // notification content.data for remote pushes — the 'data' key is
+            // invisible to the app. Mirror the payload under 'body' so tap
+            // handlers can route (e.g. chat_message → open the session chat).
             $payload = json_encode([
                 'aps'  => $aps,
                 'data' => $extra + ['kind' => $kind],
+                'body' => $extra + ['kind' => $kind],
             ], JSON_UNESCAPED_UNICODE);
 
             // Collapse incoming + cancel on the same invite so the cancel
