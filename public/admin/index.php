@@ -1082,7 +1082,7 @@ function ai_analytics(): void
                         $path = $dir . '/' . $stored;
                         @file_put_contents($path, $text);
                         @chmod($path, 0640);
-                        DB::insert('ai_references', [
+                        $newRefId = DB::insert('ai_references', [
                             'original_name'  => $name,
                             'storage_path'   => 'storage/ai-references/' . $stored,
                             'mime'           => $ext === 'md' ? 'text/markdown' : 'text/plain',
@@ -1091,6 +1091,8 @@ function ai_analytics(): void
                             'is_active'      => 1,
                             'sort_order'     => 0,
                         ]);
+                        // Build the RAG chunk index for the new reference.
+                        try { \App\Services\AiReferenceIndex::indexReference((int)$newRefId); } catch (\Throwable $e) { /* pre-migration: flat injection still works */ }
                         $saved = true;
                     }
                 }
@@ -1106,6 +1108,7 @@ function ai_analytics(): void
                 $abs = dirname(__DIR__, 2) . '/' . (string)$row['storage_path'];
                 @unlink($abs);
                 DB::run('DELETE FROM ai_references WHERE id = :id', [':id' => $id]);
+                try { DB::run('DELETE FROM ai_reference_chunks WHERE reference_id = :id', [':id' => $id]); } catch (\Throwable $e) { /* pre-migration */ }
             }
             $saved = true;
         }

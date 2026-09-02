@@ -32,7 +32,7 @@ final class CandleAiService
         $provider = (string)(Settings::get('ai_provider') ?: App::config('ai.provider'));
         $provider = $provider !== '' ? $provider : 'anthropic';
 
-        $system    = $this->systemPrompt();
+        $system    = $this->systemPrompt($userMessage);
         $userInput = $this->buildUserInput($userMessage, $mood, $recentMoods);
 
         // Build a generic OpenAI/Anthropic-shaped message list. Each
@@ -198,14 +198,14 @@ final class CandleAiService
 TXT;
     }
 
-    private function systemPrompt(): string
+    private function systemPrompt(string $userMessage = ''): string
     {
         $override = Settings::get(CANDLE_AI_PROMPT_KEY);
         $base = ($override !== null && trim($override) !== '')
             ? $override
             : self::defaultSystemPrompt();
 
-        return $base . $this->referencesBlock();
+        return $base . $this->referencesBlock($userMessage);
     }
 
     /**
@@ -221,8 +221,29 @@ TXT;
      * budget, but large enough for the three admin references uploaded
      * so far; raise deliberately, every chat call pays this in tokens).
      */
-    private function referencesBlock(): string
+    private function referencesBlock(string $userMessage = ''): string
     {
+        // RAG path: once the chunk index exists, inject only the chunks
+        // relevant to the user's message (~18k chars) instead of the whole
+        // corpus. Falls through to flat injection until the index is built.
+        if ($userMessage !== '' && AiReferenceIndex::hasChunks()) {
+            $hits = AiReferenceIndex::retrieve($userMessage);
+            $head = "\n\n=== المراجع المعتمدة (المصدر الوحيد لأي توصية) ===\n"
+                . "المقاطع أدناه منتقاة من مكتبة مراجع أشعل شمعتك حسب صلتها برسالة المستخدم، "
+                . "وهي المصدر المعتمد الوحيد لأي معلومة أو توصية عملية (فيتامينات، زيوت، تمارين، نقاط ضغط). "
+                . "قدّمي ما ورد فيها كما هو، وما لم يرد فيها فلا تقترحيه أبدًا — "
+                . "صرّحي بعدم توفره ووجّهي المستخدم لجلسة مع مستشار. "
+                . "لا تذكري المتجر أو أي روابط منتجات.";
+            if (!$hits) {
+                return $head . "\n(لا توجد مقاطع متصلة بهذه الرسالة — لا تقدمي أي توصية عملية من خارج المراجع.)";
+            }
+            $parts = [$head];
+            foreach ($hits as $h) {
+                $parts[] = '--- من: ' . $h['title'] . " ---\n" . $h['content'];
+            }
+            return "\n" . implode("\n\n", $parts);
+        }
+
         try {
             $rows = DB::all(
                 'SELECT original_name, extracted_text
